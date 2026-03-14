@@ -1,23 +1,3 @@
-# subjects = [
-#     "CS3351", "CS3352",
-#     "MA3354", "CD3291",
-#     "CS3391",
-
-
-#     "CD3281", "CS3381",
-#     "CS3361", "GE3361",
-# ]
-
-
-# credits = [
-#     4, 3,
-#     4, 3,
-#     3,
-
-#     2, 1.5,
-#     2, 1
-# ]
-
 dept_codes = {
     "AIML": 148,
     "IT": 205,
@@ -150,3 +130,7 @@ def calculate_sgpa(semester: int, grades: dict, all_subs: bool = False) -> float
     total_gp = sum(gps)
 
     return total_gp / total_credits
+
+
+def get_subjects_for_semester(semester: int) -> list[str]:
+    return [sub for sub, sem in subject_sem_mapping.items() if sem == semester]

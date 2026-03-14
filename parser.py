@@ -1,277 +1,284 @@
-import pypdf
+import pdfplumber
 
-from result import calculate_sgpa
-from tabulate import tabulate
+from constants import calculate_sgpa, grade_mapping
 
-from result import grade_mapping
-
-reader = pypdf.PdfReader("205_ND2025.pdf")
-text1 = reader.get_page(11).extract_text(extraction_mode="plain")
-results1 = text1.split("\n")[4:-3]
-# print(results1)
-
-# layout1 = reader.get_page(11)
-# # print(layout1)
-# result0 = [line for line in layout1.split("\n") if line.strip()]
-# print(result0[6:-3])
-
-text2 = reader.get_page(12).extract_text(extraction_mode="plain")
-results2 = text2.split("\n")[4:-3]
-
-text3 = reader.get_page(13).extract_text(extraction_mode="plain")
-results3 = text3.split("\n")[4:-3]
-
-sem = 5
-
-# text1 = reader.get_page(8).extract_text(extraction_mode='plain')
-# results1 = text1.split("\n")[4:-3]
-
-# text2 = reader.get_page(9).extract_text(extraction_mode='plain')
-# results2 = text2.split("\n")[4:-3]
-
-# text3 = reader.get_page(10).extract_text(extraction_mode='plain')
-# results3 = text3.split("\n")[4:-3]
-
-# text1 = reader.get_page(7).extract_text(extraction_mode='plain')
-# results1 = text1.split("\n")[4:-3]
-
-# text2 = reader.get_page(8).extract_text(extraction_mode='plain')
-# results2 = text2.split("\n")[4:-3]
-
-# text3 = reader.get_page(9).extract_text(extraction_mode='plain')
-# results3 = text3.split("\n")[4:-3]
+type Result = dict[str, str | dict[str, str]]
 
 
-results = results1 + results2 + results3
+def extract_results(
+    regno_slug: str,
+    recognized_subjects: list[str],
+    semester: int = 5,
+    file: str = "205_ND2025.pdf",
+) -> list[Result] | None:
+    results = []
+    table = []
+
+    with pdfplumber.open(file) as pdf:
+        # search for slug in pdf and get the page numbers where the slug is found
+        pages: list[int] = []
+        sem_page_found = False
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text()
+
+            if text and ("Semester No. : " + f"{semester:02d}") in text:
+                sem_page_found = True
+                pages.append(i)
+            elif (text and regno_slug in text and sem_page_found) or (
+                text
+                and "Semester No. : " + f"{semester:02d}" in text
+                and sem_page_found
+            ):
+                pages.append(i)
+        print(f"Slug found on pages: {pages}")
+
+        for page_num in pages:
+            page = pdf.pages[page_num]
+            text = page.extract_table()
+            if not text:
+                print("No table found on the page.")
+                return
+            table.extend(text)
+        if not table:
+            print("No semester table found in the document.")
+            return
+
+        header = table[0]
+        # clean the header row by stripping whitespace and removing newlines if any
+        header = [str(h).strip().replace("\n", "") for h in header]
+        print(header, recognized_subjects)
+
+        subject_indices = {
+            subj: header.index(subj) for subj in recognized_subjects if subj in header
+        }
+        print(subject_indices)
+
+        for row in table:
+            if row[0] and str(row[0]).startswith(regno_slug):
+                result_row = {"regno": row[0], "subjects": {}}
+                for subject, idx in subject_indices.items():
+                    # find the idx of the subject in the header row
+                    # print(f"Processing {row[0]} - {subject}")
+                    result_row["subjects"][subject] = (
+                        row[idx] if idx < len(row) and row[idx] else "NA"
+                    )
+                if all(grade == "NA" for grade in result_row["subjects"].values()):
+                    print(
+                        f"Skipping {row[0]} as all grades are NA: {result_row['subjects']}"
+                    )
+                    continue
+                results.append(result_row)
+
+        return results
 
 
-def parse_results(_range: tuple = (0, 100)):
-    subs = [
-        # "CS3451",
-        # "CS3452",
-        # "CS3461",
-        # "CS3481",
-        # "CS3491",
-        # "CS3492",
-        # "GE3451",
-        # "IT3401",
-        # "NM1075",
-        "CCS334",
-        "CCS335",
-        "CS3551",
-        "CS3591",
-        "CS3691",
-        "IT3501",
-        "IT3511",
-        "MX3084",
-        "NM1120",
+def store_results(results: list[dict[str, str | dict[str, str]]], filename: str):
+    import json
+
+    with open(filename, "w") as f:
+        json.dump(results, f, indent=4)
+
+
+def load_results(filename: str) -> list[dict[str, str | dict[str, str]]]:
+    import json
+
+    with open(filename, "r") as f:
+        return json.load(f)
+
+
+def get_sem_result_summary(
+    results: list[dict[str, str | dict[str, str]]], aggregate_subjects: bool = False
+) -> dict[str, int | float]:
+    summary: dict[str, int | float] = {
+        "appeared": 0,
+        "passed": 0,
+        "failed": 0,
+        "pass_percentage": 0.0,
+        "one_arrear": 0,
+        "two_arrears": 0,
+        "three+_arrears": 0,
+    }
+
+    for result in results:
+        if not result.get("subjects") or not isinstance(result["subjects"], dict):
+            print(
+                f"Skipping result for {result.get('regno', 'Unknown RegNo')}: 'subjects' key is missing or not a dictionary."
+            )
+            continue
+
+        if not all(grade == "UA" for grade in result["subjects"].values()):
+            summary["appeared"] += 1
+            if not any(grade == "U" for grade in result["subjects"].values()):
+                summary["passed"] += 1
+            if sum(grade == "U" for grade in result["subjects"].values()) == 1:
+                summary["one_arrear"] += 1
+            if sum(grade == "U" for grade in result["subjects"].values()) == 2:
+                summary["two_arrears"] += 1
+            if sum(grade == "U" for grade in result["subjects"].values()) >= 3:
+                summary["three+_arrears"] += 1
+
+    summary["failed"] = summary["appeared"] - summary["passed"]
+    summary["pass_percentage"] = (
+        (summary["passed"] / summary["appeared"] * 100)
+        if summary["appeared"] > 0
+        else 0.0
+    )
+
+    return summary
+
+
+def get_subject_wise_summary(
+    results: list[dict[str, str | dict[str, str]]],
+    regnos: list[str] | None = None,
+):
+    subject_summary: dict[str, dict[str, int | float]] = {}
+
+    results = [
+        result
+        for result in results
+        if result.get("regno")
+        and isinstance(result["regno"], str)
+        and (not regnos or result["regno"] in regnos)
     ]
 
-    results_dict = {sub: {"passed": 0, "appeared": 0, "scode": sub} for sub in subs}
     for result in results:
-        regno = result.split(" ")[0]
-        is_our_student = regno.startswith("812823")
-        if not is_our_student:
+        if not result.get("regno") or not isinstance(result["regno"], str):
+            print(f"Skipping invalid result entry: {result}")
             continue
 
-        if regno in ["812823205060", "812823205016", "812823205019"]:
-            subs = [
-                "CCS334",
-                "CCS335",
-                "dummy1",
-                "dummy2",
-                "CS3551",
-                "CS3591",
-                "CS3691",
-                "IT3501",
-                "IT3511",
-                "MX3084",
-                "NM1120",
-            ]
-        else:
-            subs = [
-                # "CS3451",
-                # "CS3452",
-                # "CS3461",
-                # "CS3481",
-                # "CS3491",
-                # "CS3492",
-                # "GE3451",
-                # "IT3401",
-                # "NM1075",
-                "CCS334",
-                "CCS335",
-                "CS3551",
-                "CS3591",
-                "CS3691",
-                "IT3501",
-                "IT3511",
-                "MX3084",
-                "NM1120",
-            ]
-
-        rollno = int(regno[-1:-3:-1][::-1])
-
-        if rollno < _range[0] or rollno > _range[1]:
+        if not result.get("subjects") or not isinstance(result["subjects"], dict):
+            print(
+                f"Skipping result for {result.get('regno', 'Unknown RegNo')}: 'subjects' key is missing or not a dictionary."
+            )
             continue
 
-        if regno in ["812823205060", "812823205016", "812823205019"]:
-            sub_res = result.split(" ")[-1:-12:-1][::-1]
-        else:
-            sub_res = result.split(" ")[-1:-10:-1][::-1]
+        for subject, grade in result["subjects"].items():
+            if subject not in subject_summary:
+                subject_summary[subject] = {
+                    "appeared": 0,
+                    "passed": 0,
+                    "pass_percentage": 0.0,
+                    "failed": 0,
+                }
+            if grade != "NA":
+                subject_summary[subject]["appeared"] += 1
+                if grade != "U":
+                    subject_summary[subject]["passed"] += 1
+                else:
+                    subject_summary[subject]["failed"] += 1
 
-        for s_idx, sub in enumerate(subs):
-            # print(f"Processing {regno} - {sub} - {sub_res[s_idx]}")
-            res = sub_res[s_idx]
-            if sub not in results_dict:
-                continue
-            if res != "UA":
-                results_dict[sub]["appeared"] += 1
-            if res != "U" and res != "UA":
-                results_dict[sub]["passed"] += 1
+    footer = {
+        "Total Students": len(results),
+        "1 Arrear": sum(
+            1
+            for result in results
+            if result.get("subjects")
+            and isinstance(result["subjects"], dict)
+            and sum(grade == "U" for grade in result["subjects"].values()) == 1
+        ),
+        "2 Arrears": sum(
+            1
+            for result in results
+            if result.get("subjects")
+            and isinstance(result["subjects"], dict)
+            and sum(grade == "U" for grade in result["subjects"].values()) == 2
+        ),
+        "3+ Arrears": sum(
+            1
+            for result in results
+            if result.get("subjects")
+            and isinstance(result["subjects"], dict)
+            and sum(grade == "U" for grade in result["subjects"].values()) >= 3
+        ),
+    }
 
-    for sub in results_dict:
-        if sub not in results_dict:
-            continue
-        # find total percentage
-        total = results_dict[sub]["appeared"]
-        if total == 0:
-            results_dict[sub]["percentage"] = 0
-        else:
-            results_dict[sub]["percentage"] = (
-                results_dict[sub]["passed"] / total
-            ) * 100
+    for subject, summary in subject_summary.items():
+        summary["pass_percentage"] = (
+            (summary["passed"] / summary["appeared"] * 100)
+            if summary["appeared"] > 0
+            else 0.0
+        )
 
-    return results_dict
+    return subject_summary, footer
 
 
-def parse_per_student(regNo):
+def get_overall_summary(
+    semester_summaries: dict[int, dict[str, int | float]],
+) -> dict[str, int | float]:
+    overall_summary: dict[str, int | float] = {
+        "appeared": 0,
+        "passed": 0,
+        "failed": 0,
+        "pass_percentage": 0.0,
+        "one_arrear": 0,
+        "two_arrears": 0,
+        "three+_arrears": 0,
+    }
+
+    for _, summary in semester_summaries.items():
+        overall_summary["appeared"] += summary.get("appeared", 0)
+        overall_summary["passed"] += summary.get("passed", 0)
+        overall_summary["failed"] += summary.get("failed", 0)
+        overall_summary["one_arrear"] += summary.get("one_arrear", 0)
+        overall_summary["two_arrears"] += summary.get("two_arrears", 0)
+        overall_summary["three+_arrears"] += summary.get("three+_arrears", 0)
+
+    overall_summary["pass_percentage"] = (
+        (overall_summary["passed"] / overall_summary["appeared"] * 100)
+        if overall_summary["appeared"] > 0
+        else 0.0
+    )
+
+    return overall_summary
+
+
+def get_student_results(
+    regno: str,
+    results: list[Result],
+) -> Result | None:
     for result in results:
-        regno = result.split(" ")[0]
-        is_our_student = regno.startswith("812823")
-        if not is_our_student:
-            continue
-
-        if regNo == regno:
-            sub_res = result.split(" ")[-1:-10:-1][::-1]
-            if regNo in ["812823205060", "812823205016", "812823205019"]:
-                sub_res = result.split(" ")[-1:-12:-1][::-1]
-
-            print(sub_res)
-            subs = [
-                # "CS3451",
-                # "CS3452",
-                # "CS3461",
-                # "CS3481",
-                # "CS3491",
-                # "CS3492",
-                # "GE3451",
-                # "IT3401",
-                # "NM1075",
-                "CCS334",
-                "CCS335",
-                "CS3551",
-                "CS3591",
-                "CS3691",
-                "IT3501",
-                "IT3511",
-                "MX3084",
-                "NM1120",
-            ]
-            if regNo in ["812823205060", "812823205016", "812823205019"]:
-                subs = [
-                    "CCS334",
-                    "CCS335",
-                    "CCS360",  # open elective course
-                    "CCS366",  # open elective course
-                    "CS3551",
-                    "CS3591",
-                    "CS3691",
-                    "IT3501",
-                    "IT3511",
-                    "MX3084",
-                    "NM1120",
-                ]
-            print(subs, sub_res)
-
-            return {subs[i]: sub_res[i] for i in range(len(subs))}
+        if result.get("regno") == regno:
+            return result
+    return None
 
 
-def print_results(results_dict, class_name=""):
-    print(f"Aggregated Results for {class_name} students")
-    headers = ["Subject Code", "Appeared", "Passed", "Percentage"]
-    table = [
-        [
-            sub,
-            results_dict[sub]["appeared"],
-            results_dict[sub]["passed"],
-            f"{results_dict[sub]['percentage']:.2f}%",
-        ]
-        for sub in results_dict
-    ]
-    print(tabulate(table, headers=headers, tablefmt="simple"))
+def compare_results_students(
+    regno1: str,
+    regno2: str,
+    results: list[Result],
+    sem: int,
+) -> dict[str, list[str]] | None:
+    student1_results = get_student_results(regno1, results)
+    student2_results = get_student_results(regno2, results)
+    if not student1_results or not student2_results:
+        print("One or both students not found in results.")
+        return None
 
-
-def print_per_student_result(regNo, results):
-    print(f"Results for student {regNo}")
-
-    for sub, res in results.items():
-        print(f"{sub}: {res}")
-
-    # calculate_sgpa(4, results)
-    print(f"SGPA: {calculate_sgpa(5, results):.2f}")
-
-
-print_results(parse_results(_range=(0, 36)), class_name="E37A")
-print_results(parse_results(_range=(37, 69)), class_name="E37B")
-
-# sgpa_results = []
-
-# all_clear = 0
-# for i in range(1, 70):
-#     regNo = f"8128232050{i:02d}"
-#     res = parse_per_student(regNo)
-#     if res:
-#         for sub in res:
-#             if res[sub] == "UA" or res[sub] == "U":
-#                 break
-#         else:
-#             all_clear += 1
-
-#         sgpa_results.append((calculate_sgpa(sem, res), regNo))
-#         print(f"Results for student {regNo}:", end=" ")
-#         print(f"SGPA: {calculate_sgpa(sem, res):.2f}")
-
-# # print(f"All Clear: {all_clear}")
-# sgpa_results.sort(reverse=True, key=lambda x: x[0])
-# prev_rank = 1
-# for i, (sgpa, regNo) in enumerate(sgpa_results):
-#     # if same rank, give same rank to both students
-#     if i == 0:
-#         rank = 1
-#     else:
-#         prev_sgpa = sgpa_results[i - 1][0]
-#         if sgpa == prev_sgpa:
-#             rank = prev_rank
-#         else:
-#             rank = prev_rank + 1
-#     prev_rank = rank
-#     print(f"{rank}. Results for student {regNo}:", end=" ")
-#     print(f"SGPA: {sgpa:.2f}")
-
-
-def compare_students(regNo1, regNo2):
-    res1 = parse_per_student(regNo1)
-    res2 = parse_per_student(regNo2)
-    if not res1 or not res2:
+    if not student1_results or not student2_results:
         print("One or both registration numbers not found.")
-        return
-    print(f"Comparison between {regNo1} and {regNo2}:")
-    all_subjects = sorted(set(res1.keys()).union(res2.keys()))
+        return None
+    print(f"Comparison between {regno1} and {regno2}:")
+
+    if not student1_results.get("subjects") or not isinstance(
+        student1_results["subjects"], dict
+    ):
+        print(f"Student {regno1} has no valid 'subjects' data.")
+        return None
+    if not student2_results.get("subjects") or not isinstance(
+        student2_results["subjects"], dict
+    ):
+        print(f"Student {regno2} has no valid 'subjects' data.")
+        return None
+
+    all_subjects = sorted(
+        set(student1_results["subjects"].keys()).union(
+            student2_results["subjects"].keys()
+        )
+    )
     table = []
     for sub in all_subjects:
-        r1 = grade_mapping.get(res1.get(sub, "NA"), "0")
-        r2 = grade_mapping.get(res2.get(sub, "NA"), "0")
+        r1 = grade_mapping.get(student1_results["subjects"].get(sub, "NA"), "0")
+        r2 = grade_mapping.get(student2_results["subjects"].get(sub, "NA"), "0")
         # Try to convert grades to int for difference calculation
         try:
             g1 = int(r1)
@@ -287,137 +294,68 @@ def compare_students(regNo1, regNo2):
         else:
             diff_str = "-"
         table.append([sub, r1, r2, diff_str])
-    headers = ["Subject", regNo1, regNo2, "Diff"]
-    print(tabulate(table, headers=headers, tablefmt="simple"))
+    headers = ["Subject", regno1, regno2, "Diff"]
+    gp1 = sum(
+        grade_mapping.get(grade, 0) for grade in student1_results["subjects"].values()
+    )
+    gp2 = sum(
+        grade_mapping.get(grade, 0) for grade in student2_results["subjects"].values()
+    )
 
-    sgpa1 = calculate_sgpa(sem, res1)
-    sgpa2 = calculate_sgpa(sem, res2)
-    sgpa_diff = sgpa1 - sgpa2
-    print(f"\nSGPA {regNo1}: {sgpa1:.2f}")
-    print(f"SGPA {regNo2}: {sgpa2:.2f}")
-    print(f"SGPA Difference: {sgpa_diff:+.2f}")
+    gp_diff = gp1 - gp2
+    table.append(["Total GP", str(gp1), str(gp2), f"{gp_diff:+d}"])
+
+    sgpa1 = calculate_sgpa(sem, student1_results["subjects"])
+    sgpa2 = calculate_sgpa(sem, student2_results["subjects"])
+
+    return {
+        "headers": headers,
+        "table": table,
+        "footer": [
+            f"SGPA {regno1}: {sgpa1:.2f}",
+            f"SGPA {regno2}: {sgpa2:.2f}",
+            f"SGPA Difference: {(sgpa1 - sgpa2):+.2f}",
+        ],
+    }
 
 
-# # Example usage:
-compare_students("812823205060", "812823205054")
+def generate_rank_list(
+    results: list[Result], sem: int, top_k: int = 10
+) -> list[tuple[int, str, float]]:
 
+    sgpa_results = []
+    for result in results:
+        regNo = result.get("regno")
+        res = result.get("subjects")
+        if not regNo:
+            print(f"Skipping invalid result entry: {result}")
+            continue
+        if not res or not isinstance(res, dict):
+            print(f"Skipping {regNo} as 'subjects' data is missing or invalid.")
+            continue
 
-# e47_results = get_result_summary(
-#     load_results(f"semester_7_results_{dept_code}.json")
-# )
-# e37_results = get_result_summary(
-#     load_results(f"semester_5_results_{dept_code}.json")
-# )
-# e27_results = get_result_summary(
-#     load_results(f"semester_3_results_{dept_code}.json")
-# )
-# e29_results = get_result_summary(
-#     load_results(f"semester_3_results_{dept_code}.json")
-# )
+        # if the student has failed one subject, their SGPA is considered 0 for ranking purposes
+        if any(grade == "U" or grade == "UA" for grade in res.values()):
+            sgpa = 0
+        else:
+            sgpa = calculate_sgpa(sem, res)
+        sgpa_results.append((sgpa, regNo))
 
-# # aggregate all results for overall pass percentage
-# overall_summary = {
-#     "appeared": e47_results["appeared"]
-#     + e37_results["appeared"]
-#     + e27_results["appeared"],
-#     # + e29_results["appeared"],
-#     "passed": e47_results["passed"] + e37_results["passed"] + e27_results["passed"],
-#     # + e29_results["passed"],
-#     "one_arrear": e47_results["one_arrear"]
-#     + e37_results["one_arrear"]
-#     + e27_results["one_arrear"],
-#     # + e29_results["one_arrear"],
-#     "two_arrears": e47_results["two_arrears"]
-#     + e37_results["two_arrears"]
-#     + e27_results["two_arrears"],
-#     # + e29_results["two_arrears"],
-#     "three+_arrears": e47_results["three+_arrears"]
-#     + e37_results["three+_arrears"]
-#     + e27_results["three+_arrears"],
-#     # + e29_results["three+_arrears"],
-# }
+    sgpa_results.sort(
+        reverse=True, key=lambda x: x[0]
+    )  # sort by SGPA in descending order
 
-# overall_summary["failed"] = overall_summary["appeared"] - overall_summary["passed"]
-# overall_summary["pass_percentage"] = (
-#     (overall_summary["passed"] / overall_summary["appeared"] * 100)
-#     if overall_summary["appeared"] > 0
-#     else 0.0
-# )
+    ranks: list[tuple[int, str, float]] = []
 
-# print(e47_results, "E47")
-# print(e37_results, "E37")
-# print(e27_results, "E27")
-# print(e29_results, "E29")
-# print(overall_summary, "Overall")
+    prev_rank = 0
+    for i, (sgpa, regNo) in enumerate(sgpa_results):
+        prev_sgpa = sgpa_results[i - 1][0]
+        if sgpa == prev_sgpa:
+            rank = prev_rank
+        else:
+            rank = prev_rank + 1
 
-# # tabulate the results in a table format
-# table = [
-#     [
-#         "Dept",
-#         "Class",
-#         "Appeared",
-#         "Passed",
-#         "Failed",
-#         "Pass Percentage",
-#         "1 Arrear",
-#         "2 Arrears",
-#         "3+ Arrears",
-#     ],
-#     [
-#         "IT",
-#         "E47",
-#         e47_results["appeared"],
-#         e47_results["passed"],
-#         e47_results["failed"],
-#         f"{e47_results['pass_percentage']:.2f}%",
-#         e47_results["one_arrear"],
-#         e47_results["two_arrears"],
-#         e47_results["three+_arrears"],
-#     ],
-#     [
-#         "IT",
-#         "E37",
-#         e37_results["appeared"],
-#         e37_results["passed"],
-#         e37_results["failed"],
-#         f"{e37_results['pass_percentage']:.2f}%",
-#         e37_results["one_arrear"],
-#         e37_results["two_arrears"],
-#         e37_results["three+_arrears"],
-#     ],
-#     [
-#         "IT",
-#         "E27",
-#         e27_results["appeared"],
-#         e27_results["passed"],
-#         e27_results["failed"],
-#         f"{e27_results['pass_percentage']:.2f}%",
-#         e27_results["one_arrear"],
-#         e27_results["two_arrears"],
-#         e27_results["three+_arrears"],
-#     ],
-#     # [
-#     #     "AIML",
-#     #     "E29",
-#     #     e29_results["appeared"],
-#     #     e29_results["passed"],
-#     #     e29_results["failed"],
-#     #     f"{e29_results['pass_percentage']:.2f}%",
-#     #     e29_results["one_arrear"],
-#     #     e29_results["two_arrears"],
-#     #     e29_results["three+_arrears"],
-#     # ],
-#     [
-#         "Overall",
-#         "",
-#         overall_summary["appeared"],
-#         overall_summary["passed"],
-#         overall_summary["failed"],
-#         f"{overall_summary['pass_percentage']:.2f}%",
-#         overall_summary["one_arrear"],
-#         overall_summary["two_arrears"],
-#         overall_summary["three+_arrears"],
-#     ],
-# ]
+        ranks.append((rank, regNo, sgpa))
+        prev_rank = rank
 
-# print(tabulate(table, headers="firstrow", tablefmt="grid"))
+    return ranks[:top_k]

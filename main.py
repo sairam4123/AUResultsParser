@@ -1,6 +1,6 @@
 from tabulate import tabulate
 
-from new_parser import (
+from parser import (
     compare_results_students,
     extract_results,
     generate_rank_list,
@@ -11,11 +11,7 @@ from new_parser import (
     load_results,
     store_results,
 )
-from result import calculate_sgpa, subject_sem_mapping, dept_codes
-
-
-def get_subjects_for_semester(semester: int) -> list[str]:
-    return [sub for sub, sem in subject_sem_mapping.items() if sem == semester]
+from constants import calculate_sgpa, dept_codes, get_subjects_for_semester
 
 
 # results = extract_results(
