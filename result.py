@@ -126,15 +126,18 @@ grade_mapping = {
 
 
 def calculate_sgpa(semester: int, grades: dict, all_subs: bool = False) -> float:
-    if not (2 < semester < 6):
-        raise ValueError("Semester must be between 3 and 5")
+    if not (2 < semester < 9):
+        raise ValueError("Semester must be between 3 and 8 inclusive.")
 
     # get subjects from semester_mapping
     subjects = (
-        [sub for sub, _ in grades.items()]
+        [
+            sub for sub, res in grades.items() if res != "NA"
+        ]  # ignore subjects with NA grade (Not Available)
         if not all_subs
         else [sub for sub, sem in subject_sem_mapping.items() if sem == semester]
     )
+    print(subjects)
     credits = [subject_credit_mapping[sub] for sub in subjects]
 
     gps = []

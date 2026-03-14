@@ -300,3 +300,124 @@ def compare_students(regNo1, regNo2):
 
 # # Example usage:
 compare_students("812823205060", "812823205054")
+
+
+# e47_results = get_result_summary(
+#     load_results(f"semester_7_results_{dept_code}.json")
+# )
+# e37_results = get_result_summary(
+#     load_results(f"semester_5_results_{dept_code}.json")
+# )
+# e27_results = get_result_summary(
+#     load_results(f"semester_3_results_{dept_code}.json")
+# )
+# e29_results = get_result_summary(
+#     load_results(f"semester_3_results_{dept_code}.json")
+# )
+
+# # aggregate all results for overall pass percentage
+# overall_summary = {
+#     "appeared": e47_results["appeared"]
+#     + e37_results["appeared"]
+#     + e27_results["appeared"],
+#     # + e29_results["appeared"],
+#     "passed": e47_results["passed"] + e37_results["passed"] + e27_results["passed"],
+#     # + e29_results["passed"],
+#     "one_arrear": e47_results["one_arrear"]
+#     + e37_results["one_arrear"]
+#     + e27_results["one_arrear"],
+#     # + e29_results["one_arrear"],
+#     "two_arrears": e47_results["two_arrears"]
+#     + e37_results["two_arrears"]
+#     + e27_results["two_arrears"],
+#     # + e29_results["two_arrears"],
+#     "three+_arrears": e47_results["three+_arrears"]
+#     + e37_results["three+_arrears"]
+#     + e27_results["three+_arrears"],
+#     # + e29_results["three+_arrears"],
+# }
+
+# overall_summary["failed"] = overall_summary["appeared"] - overall_summary["passed"]
+# overall_summary["pass_percentage"] = (
+#     (overall_summary["passed"] / overall_summary["appeared"] * 100)
+#     if overall_summary["appeared"] > 0
+#     else 0.0
+# )
+
+# print(e47_results, "E47")
+# print(e37_results, "E37")
+# print(e27_results, "E27")
+# print(e29_results, "E29")
+# print(overall_summary, "Overall")
+
+# # tabulate the results in a table format
+# table = [
+#     [
+#         "Dept",
+#         "Class",
+#         "Appeared",
+#         "Passed",
+#         "Failed",
+#         "Pass Percentage",
+#         "1 Arrear",
+#         "2 Arrears",
+#         "3+ Arrears",
+#     ],
+#     [
+#         "IT",
+#         "E47",
+#         e47_results["appeared"],
+#         e47_results["passed"],
+#         e47_results["failed"],
+#         f"{e47_results['pass_percentage']:.2f}%",
+#         e47_results["one_arrear"],
+#         e47_results["two_arrears"],
+#         e47_results["three+_arrears"],
+#     ],
+#     [
+#         "IT",
+#         "E37",
+#         e37_results["appeared"],
+#         e37_results["passed"],
+#         e37_results["failed"],
+#         f"{e37_results['pass_percentage']:.2f}%",
+#         e37_results["one_arrear"],
+#         e37_results["two_arrears"],
+#         e37_results["three+_arrears"],
+#     ],
+#     [
+#         "IT",
+#         "E27",
+#         e27_results["appeared"],
+#         e27_results["passed"],
+#         e27_results["failed"],
+#         f"{e27_results['pass_percentage']:.2f}%",
+#         e27_results["one_arrear"],
+#         e27_results["two_arrears"],
+#         e27_results["three+_arrears"],
+#     ],
+#     # [
+#     #     "AIML",
+#     #     "E29",
+#     #     e29_results["appeared"],
+#     #     e29_results["passed"],
+#     #     e29_results["failed"],
+#     #     f"{e29_results['pass_percentage']:.2f}%",
+#     #     e29_results["one_arrear"],
+#     #     e29_results["two_arrears"],
+#     #     e29_results["three+_arrears"],
+#     # ],
+#     [
+#         "Overall",
+#         "",
+#         overall_summary["appeared"],
+#         overall_summary["passed"],
+#         overall_summary["failed"],
+#         f"{overall_summary['pass_percentage']:.2f}%",
+#         overall_summary["one_arrear"],
+#         overall_summary["two_arrears"],
+#         overall_summary["three+_arrears"],
+#     ],
+# ]
+
+# print(tabulate(table, headers="firstrow", tablefmt="grid"))
