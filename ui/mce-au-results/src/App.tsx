@@ -1,0 +1,100 @@
+import { useEffect, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { getMeta } from "./api/client";
+import { AppLayout } from "./layout/AppLayout";
+import { OverviewPage } from "./pages/OverviewPage";
+import { RankingsPage } from "./pages/RankingsPage";
+import { StudentsPage } from "./pages/StudentsPage";
+import type { Meta } from "./types/api";
+import "./App.css";
+
+function App() {
+  const [meta, setMeta] = useState<Meta>({ departments: [], semesters: [] });
+  const [department, setDepartment] = useState("IT");
+  const [semester, setSemester] = useState(5);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    const loadMetadata = async () => {
+      setMetaLoading(true);
+      setError("");
+
+      try {
+        const payload = await getMeta();
+        if (!active) {
+          return;
+        }
+
+        setMeta(payload);
+        if (payload.departments.length > 0) {
+          setDepartment((current) => {
+            const exists = payload.departments.some(
+              (dep) => dep.name === current,
+            );
+            return exists ? current : payload.departments[0].name;
+          });
+        }
+
+        if (payload.semesters.length > 0) {
+          setSemester((current) =>
+            payload.semesters.includes(current)
+              ? current
+              : payload.semesters[0],
+          );
+        }
+      } catch (err) {
+        if (active) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load metadata",
+          );
+        }
+      } finally {
+        if (active) {
+          setMetaLoading(false);
+        }
+      }
+    };
+
+    loadMetadata().catch(() => {
+      if (active) {
+        setError("Failed to load metadata");
+        setMetaLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route
+          element={
+            <AppLayout
+              departments={meta.departments}
+              semesters={meta.semesters}
+              department={department}
+              semester={semester}
+              onDepartmentChange={setDepartment}
+              onSemesterChange={setSemester}
+              error={error}
+              metaLoading={metaLoading}
+            />
+          }
+        >
+          <Route path="/" element={<OverviewPage />} />
+          <Route path="/students" element={<StudentsPage />} />
+          <Route path="/rankings" element={<RankingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;

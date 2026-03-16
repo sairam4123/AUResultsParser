@@ -12,3 +12,4 @@ wheels/
 *.json
 *.pdf
 _*.py
+!__init__.py

@@ -1,6 +1,6 @@
 from tabulate import tabulate
 
-from parser import (
+from backend.parser import (
     compare_results_students,
     extract_results,
     generate_rank_list,
@@ -11,31 +11,12 @@ from parser import (
     load_results,
     store_results,
 )
-from constants import calculate_sgpa, dept_codes, get_subjects_for_semester
-
-
-# results = extract_results(
-#     "812822205",
-#     sorted(get_subjects_for_semester(7)),
-#     semester=7,
-#     file="205_ND2025.pdf",
-# )
-# if not results:
-#     print("No results found for the given registration slug.")
-# else:
-#     store_results(results, "semester_7_results.json")
-
-
-# results = extract_results(
-#     "812824148",
-#     sorted(get_subjects_for_semester(3)),
-#     semester=3,
-#     file="148_ND2025.pdf",
-# )
-# if not results:
-#     print("No results found for the given registration slug.")
-# else:
-#     store_results(results, "semester_3_results_148.json")
+from backend.constants import (
+    calculate_sgpa,
+    dept_codes,
+    get_subject_name,
+    get_subjects_for_semester,
+)
 
 
 def interactive_result_summary():
@@ -80,7 +61,7 @@ def interactive_result_summary():
         ],
         *[
             [
-                sem,
+                f"Semester {sem:02d}",
                 summary[sem]["appeared"],
                 summary[sem]["passed"],
                 summary[sem]["failed"],
@@ -122,7 +103,7 @@ def interactive_extract_results():
     print("Using department code:", dept_code)
 
     confirm = input("Proceed with the above details? (Y/N): ").strip().upper()
-    if confirm.lower().startswith("y"):
+    if not confirm.lower().startswith("y"):
         print("Aborting result extraction.")
         return
 
@@ -188,7 +169,7 @@ def interactive_student_rank_list():
     if not rank_list:
         print("Failed to generate rank list due to missing data.")
         return
-    headers = ["Rank", "Registration Number", "SGPA"]
+    headers = ["Rank", "Registration Number", "Name", "SGPA"]
     tabulated = tabulate(rank_list, headers=headers, tablefmt="grid")
     print(tabulated)
 
@@ -209,10 +190,21 @@ def interactive_per_student_results():
         return
 
     tabulated = tabulate(
-        student_results.items(), headers=["Subject", "Grade"], tablefmt="grid"
+        [
+            [
+                subject,
+                get_subject_name(subject),
+                grade,
+                "Pass" if grade not in ["UA", "U"] else "Fail",
+            ]
+            for subject, grade in student_results["subjects"].items()
+        ],
+        headers=["Subject", "Name", "Grade", "Pass"],
+        tablefmt="grid",
     )
+    print("Results for student", regNo, "in semester", sem)
     print(tabulated)
-    print(f"SGPA: {calculate_sgpa(sem, student_results):.2f}")
+    print(f"SGPA: {calculate_sgpa(sem, student_results['subjects']):.2f}")
 
 
 def interactive_class_result_analysis():
@@ -263,10 +255,11 @@ def interactive_class_result_analysis():
     summary, footer = get_subject_wise_summary(results, regnos)
 
     tabulated_summary = [
-        ["Subject", "Appeared", "Passed", "Failed", "Pass Percentage"],
+        ["Subject", "Subject Name", "Appeared", "Passed", "Failed", "Pass Percentage"],
         *[
             [
                 subject,
+                get_subject_name(subject),
                 summary[subject]["appeared"],
                 summary[subject]["passed"],
                 summary[subject]["failed"],

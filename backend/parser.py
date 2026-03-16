@@ -1,6 +1,6 @@
 import pdfplumber
 
-from constants import calculate_sgpa, grade_mapping
+from backend.constants import calculate_sgpa, get_subject_name, grade_mapping
 
 type Result = dict[str, str | dict[str, str]]
 
@@ -46,16 +46,17 @@ def extract_results(
         header = table[0]
         # clean the header row by stripping whitespace and removing newlines if any
         header = [str(h).strip().replace("\n", "") for h in header]
-        print(header, recognized_subjects)
-
         subject_indices = {
             subj: header.index(subj) for subj in recognized_subjects if subj in header
         }
-        print(subject_indices)
 
         for row in table:
             if row[0] and str(row[0]).startswith(regno_slug):
-                result_row = {"regno": row[0], "subjects": {}}
+                result_row = {
+                    "regno": row[0],
+                    "name": row[1] if len(row) > 1 else "N/A",
+                    "subjects": {},
+                }
                 for subject, idx in subject_indices.items():
                     # find the idx of the subject in the header row
                     # print(f"Processing {row[0]} - {subject}")
@@ -249,7 +250,9 @@ def compare_results_students(
     sem: int,
 ) -> dict[str, list[str]] | None:
     student1_results = get_student_results(regno1, results)
+    stud1_name = student1_results.get("name", "N/A") if student1_results else "N/A"
     student2_results = get_student_results(regno2, results)
+    stud2_name = student2_results.get("name", "N/A") if student2_results else "N/A"
     if not student1_results or not student2_results:
         print("One or both students not found in results.")
         return None
@@ -293,8 +296,14 @@ def compare_results_students(
             diff_str = f"{diff:+d}"
         else:
             diff_str = "-"
-        table.append([sub, r1, r2, diff_str])
-    headers = ["Subject", regno1, regno2, "Diff"]
+        table.append([sub, get_subject_name(sub), r1, r2, diff_str])
+    headers = [
+        "Subject",
+        "Subject Name",
+        f"{stud1_name} ({regno1[-3:]})",
+        f"{stud2_name} ({regno2[-3:]})",
+        "Diff",
+    ]
     gp1 = sum(
         grade_mapping.get(grade, 0) for grade in student1_results["subjects"].values()
     )
@@ -303,7 +312,7 @@ def compare_results_students(
     )
 
     gp_diff = gp1 - gp2
-    table.append(["Total GP", str(gp1), str(gp2), f"{gp_diff:+d}"])
+    table.append(["Total GP", "", str(gp1), str(gp2), f"{gp_diff:+d}"])
 
     sgpa1 = calculate_sgpa(sem, student1_results["subjects"])
     sgpa2 = calculate_sgpa(sem, student2_results["subjects"])
@@ -321,12 +330,13 @@ def compare_results_students(
 
 def generate_rank_list(
     results: list[Result], sem: int, top_k: int = 10
-) -> list[tuple[int, str, float]]:
+) -> list[tuple[int, str, str, float]]:
 
     sgpa_results = []
     for result in results:
         regNo = result.get("regno")
         res = result.get("subjects")
+        name = result.get("name", "N/A")
         if not regNo:
             print(f"Skipping invalid result entry: {result}")
             continue
@@ -339,23 +349,23 @@ def generate_rank_list(
             sgpa = 0
         else:
             sgpa = calculate_sgpa(sem, res)
-        sgpa_results.append((sgpa, regNo))
+        sgpa_results.append((sgpa, regNo, name))
 
     sgpa_results.sort(
         reverse=True, key=lambda x: x[0]
     )  # sort by SGPA in descending order
 
-    ranks: list[tuple[int, str, float]] = []
+    ranks: list[tuple[int, str, str, float]] = []
 
     prev_rank = 0
-    for i, (sgpa, regNo) in enumerate(sgpa_results):
+    for i, (sgpa, regNo, name) in enumerate(sgpa_results):
         prev_sgpa = sgpa_results[i - 1][0]
         if sgpa == prev_sgpa:
             rank = prev_rank
         else:
             rank = prev_rank + 1
 
-        ranks.append((rank, regNo, sgpa))
+        ranks.append((rank, regNo, name, sgpa))
         prev_rank = rank
 
     return ranks[:top_k]

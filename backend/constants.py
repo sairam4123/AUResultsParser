@@ -92,6 +92,50 @@ subject_sem_mapping = {
     "NM1113": 0,  # 2 credits (currently disabled)
 }
 
+subject_name_mapping = {
+    # Sem 7 subjects
+    "GE3791": "Ethics and Human Values",
+    "AI3021": "IT in Agriculture",
+    "CCS355": "Unknown",
+    "CCS374": "Unknown",
+    "GE3752": "Unknown",
+    "IT3711": "Unknown",
+    "OHS352": "Unknown",
+    "SB8067": "Unknown",
+    # Sem 5 subjects
+    "CS3591": "Computer Networks",
+    "IT3501": "Full Stack Web Development",
+    "CS3551": "Distributed Computing",
+    "CS3691": "Embedded Systems and IoT",
+    "CCS334": "Big Data Analytics",
+    "CCS335": "Cloud Computing",
+    "CCS366": "Software Testing and Automation",
+    "CCS360": "Recomender Systems",
+    "MX3084": "Disaster Risk Reduction and Management",
+    "IT3511": "Full Stack Web Development Lab",
+    "NM1120": "Naan Mudhalvan",
+    # Sem 4 subjects
+    "CS3451": "Introduction to Operating Systems",
+    "CS3452": "Theory of Computation",
+    "CS3491": "Artificial Intelligence and Machine Learning",
+    "CS3492": "Database Management Systems",
+    "GE3451": "Environmental Science and Sustainability",
+    "IT3401": "Web Essentials",
+    "CS3461": "Operating Systems Lab",
+    "CS3481": "Database Management Systems Lab",
+    "NM1075": "Naan Mudhalvan",
+    # Sem 3 subjects
+    "CS3351": "Digital Principles and Computer Organization",
+    "CD3291": "Data Structures and Algorithm",
+    "MA3354": "Discrete Mathematics",
+    "CS3352": "Foundations of Data Science",
+    "CS3391": "Object Oriented Programming",
+    "CD3281": "Data Structures and Algorithm Lab",
+    "CS3381": "Object Oriented Programming Lab",
+    "CS3361": "Data Science Lab",
+}
+
+
 grade_mapping = {
     "O": 10,
     "A+": 9,
@@ -100,7 +144,7 @@ grade_mapping = {
     "B": 6,
     "C": 5,
     "U": 0,  # Reappear
-    "UA": 0,  # Not Attempted
+    "UA": 0,  # Arrear Absent
     "NA": 0,  # Not Available
 }
 
@@ -134,3 +178,13 @@ def calculate_sgpa(semester: int, grades: dict, all_subs: bool = False) -> float
 
 def get_subjects_for_semester(semester: int) -> list[str]:
     return [sub for sub, sem in subject_sem_mapping.items() if sem == semester]
+
+
+def get_subject_name(subject_code: str, short_name: bool = True) -> str:
+    name = subject_name_mapping.get(subject_code, "Unknown Subject")
+    # take the first letter of each word in the subject name to create a short name
+    return (
+        name
+        if not short_name
+        else "".join(word[0] for word in name.split() if word[0].isupper())
+    )
