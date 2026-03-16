@@ -62,10 +62,15 @@ export function ImportsPage() {
         return;
       }
 
-      const payload = await importResultsFile(semester, department, selectedFile, {
-        regnoSlug: cleanedSlug || undefined,
-        batch: cleanedBatch || undefined,
-      });
+      const payload = await importResultsFile(
+        semester,
+        department,
+        selectedFile,
+        {
+          regnoSlug: cleanedSlug || undefined,
+          batch: cleanedBatch || undefined,
+        },
+      );
       setActionMessage(
         `Imported ${payload.count} records from ${payload.source}. Saved to ${payload.output_path}.` +
           (payload.filter.effective_slug
@@ -129,8 +134,8 @@ export function ImportsPage() {
       <article className="panel">
         <h2>Import Center</h2>
         <p className="hint">
-          Import result PDFs and manage server JSON storage for Department {department},
-          Semester {semester}.
+          Import result PDFs and manage server JSON storage for Department{" "}
+          {department}, Semester {semester}.
         </p>
 
         <section className="data-actions" aria-label="Import actions">
@@ -156,7 +161,9 @@ export function ImportsPage() {
             }}
             disabled={actionLoading !== null || !selectedFile}
           >
-            {actionLoading === "import" ? "Importing..." : "Import and Save JSON"}
+            {actionLoading === "import"
+              ? "Importing..."
+              : "Import and Save JSON"}
           </button>
 
           <button
@@ -167,7 +174,9 @@ export function ImportsPage() {
             }}
             disabled={actionLoading !== null}
           >
-            {actionLoading === "export" ? "Exporting..." : "Export Semester JSON"}
+            {actionLoading === "export"
+              ? "Exporting..."
+              : "Export Semester JSON"}
           </button>
 
           <div className="input-wrap data-actions-full">
@@ -218,7 +227,9 @@ export function ImportsPage() {
         </section>
 
         {actionError ? <p className="error-banner">{actionError}</p> : null}
-        {actionMessage ? <p className="success-banner">{actionMessage}</p> : null}
+        {actionMessage ? (
+          <p className="success-banner">{actionMessage}</p>
+        ) : null}
       </article>
     </section>
   );
