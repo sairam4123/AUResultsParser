@@ -32,7 +32,9 @@ export function RankingsPage() {
   return (
     <section className="grid page-stack">
       <article className="panel">
-        <h2>Rank List</h2>
+        <div className="panel-head">
+          <h2>Rank List</h2>
+        </div>
         <form onSubmit={onGetRankList} className="inline-form">
           <div className="input-wrap compact">
             <label htmlFor="topK">Top K</label>

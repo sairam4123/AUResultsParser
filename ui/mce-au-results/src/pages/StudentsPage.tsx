@@ -1,35 +1,86 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import Select from "react-select";
 import { useOutletContext } from "react-router-dom";
-import { compareStudents, getStudent } from "../api/client";
+import { getStudent, getStudentsDirectory } from "../api/client";
 import type { LayoutOutletContext } from "../layout/layoutContext";
-import type { Comparison, Student } from "../types/api";
+import type { Student, StudentDirectoryItem } from "../types/api";
+
+type Option = {
+  value: string;
+  label: string;
+  name: string;
+};
+
+const toOption = (item: StudentDirectoryItem): Option => ({
+  value: item.regno,
+  label: `${item.name} (${item.regno})`,
+  name: item.name,
+});
 
 export function StudentsPage() {
   const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const menuPortalTarget =
+    typeof window !== "undefined" ? document.body : undefined;
 
   const [student, setStudent] = useState<Student | null>(null);
-  const [comparison, setComparison] = useState<Comparison | null>(null);
 
-  const [studentRegNo, setStudentRegNo] = useState("");
-  const [compareRegNo1, setCompareRegNo1] = useState("");
-  const [compareRegNo2, setCompareRegNo2] = useState("");
+  const [studentOptions, setStudentOptions] = useState<Option[]>([]);
+  const [lookupOption, setLookupOption] = useState<Option | null>(null);
 
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
   const [loadingStudent, setLoadingStudent] = useState(false);
-  const [loadingCompare, setLoadingCompare] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!department || !semester) {
+      return;
+    }
+
+    let active = true;
+
+    const loadDirectory = async () => {
+      setLoadingDirectory(true);
+      try {
+        const items = await getStudentsDirectory(semester, department);
+        if (!active) {
+          return;
+        }
+        const options = items.map(toOption);
+        setStudentOptions(options);
+      } catch {
+        if (active) {
+          setStudentOptions([]);
+        }
+      } finally {
+        if (active) {
+          setLoadingDirectory(false);
+        }
+      }
+    };
+
+    loadDirectory().catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [department, semester]);
 
   const onSearchStudent = async (event: FormEvent) => {
     event.preventDefault();
-    if (!studentRegNo.trim()) {
-      setError("Enter a registration number to search student details.");
+    if (!lookupOption?.value) {
+      setError("Select a student by name or registration number.");
       return;
     }
 
     setLoadingStudent(true);
     setError("");
     try {
-      const payload = await getStudent(semester, department, studentRegNo);
+      const payload = await getStudent(
+        semester,
+        department,
+        lookupOption.value,
+      );
       setStudent(payload);
     } catch (err) {
       setStudent(null);
@@ -39,45 +90,28 @@ export function StudentsPage() {
     }
   };
 
-  const onCompareStudents = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!compareRegNo1.trim() || !compareRegNo2.trim()) {
-      setError("Enter both registration numbers for comparison.");
-      return;
-    }
-
-    setLoadingCompare(true);
-    setError("");
-    try {
-      const payload = await compareStudents(
-        semester,
-        department,
-        compareRegNo1,
-        compareRegNo2,
-      );
-      setComparison(payload);
-    } catch (err) {
-      setComparison(null);
-      setError(
-        err instanceof Error ? err.message : "Failed to compare students",
-      );
-    } finally {
-      setLoadingCompare(false);
-    }
-  };
-
   return (
-    <section className="grid grid-two">
+    <section className="grid page-stack">
       <article className="panel">
-        <h2>Student Lookup</h2>
+        <div className="panel-head">
+          <h2>Student Lookup</h2>
+        </div>
+
         <form onSubmit={onSearchStudent} className="stack">
           <div className="input-wrap">
-            <label htmlFor="studentRegNo">Registration Number</label>
-            <input
-              id="studentRegNo"
-              value={studentRegNo}
-              onChange={(event) => setStudentRegNo(event.target.value)}
-              placeholder="812823205001"
+            <label htmlFor="studentSelect">Search by Name / Reg No</label>
+            <Select
+              inputId="studentSelect"
+              options={studentOptions}
+              value={lookupOption}
+              onChange={(option) => setLookupOption(option)}
+              isLoading={loadingDirectory}
+              placeholder="Start typing name or registration number..."
+              isClearable
+              menuPlacement="auto"
+              menuPosition="fixed"
+              menuPortalTarget={menuPortalTarget}
+              classNamePrefix="rs"
             />
           </div>
           <button type="submit" disabled={loadingStudent}>
@@ -115,66 +149,6 @@ export function StudentsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
-        ) : null}
-      </article>
-
-      <article className="panel">
-        <h2>Compare Students</h2>
-        <form onSubmit={onCompareStudents} className="stack">
-          <div className="input-wrap">
-            <label htmlFor="compare1">First Reg No</label>
-            <input
-              id="compare1"
-              value={compareRegNo1}
-              onChange={(event) => setCompareRegNo1(event.target.value)}
-              placeholder="812823205001"
-            />
-          </div>
-          <div className="input-wrap">
-            <label htmlFor="compare2">Second Reg No</label>
-            <input
-              id="compare2"
-              value={compareRegNo2}
-              onChange={(event) => setCompareRegNo2(event.target.value)}
-              placeholder="812823205002"
-            />
-          </div>
-          <button type="submit" disabled={loadingCompare}>
-            {loadingCompare ? "Comparing..." : "Compare"}
-          </button>
-        </form>
-
-        {comparison ? (
-          <div className="result-block">
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    {comparison.headers.map((header) => (
-                      <th key={header}>{header}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparison.table.map((row, index) => (
-                    <tr key={`cmp-row-${index}`}>
-                      {row.map((cell, cellIndex) => (
-                        <td key={`cmp-cell-${index}-${cellIndex}`}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {comparison.footer.length > 0 ? (
-              <div className="footer-notes">
-                {comparison.footer.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </div>
-            ) : null}
           </div>
         ) : null}
       </article>

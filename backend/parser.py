@@ -1,21 +1,33 @@
 import pdfplumber
+import re
 
 from backend.constants import calculate_sgpa, get_subject_name, grade_mapping
 
 type Result = dict[str, str | dict[str, str]]
 
 
-def extract_results(
-    regno_slug: str,
+def extract_results_from_file(
     recognized_subjects: list[str],
-    semester: int = 5,
-    file: str = "205_ND2025.pdf",
+    semester: int,
+    file: str,
+    regno_slug: str | None = None,
+    department_code: int | None = None,
 ) -> list[Result] | None:
+    """Extract semester results from a PDF filtered by regno slug or department code."""
+    if regno_slug is None and department_code is None:
+        raise ValueError("Either regno_slug or department_code must be provided.")
+
+    normalized_slug = regno_slug.strip() if regno_slug else None
+    dept_pattern: re.Pattern[str] | None = None
+    dept_page_pattern: re.Pattern[str] | None = None
+    if department_code is not None:
+        dept_pattern = re.compile(rf"^8128\d{{2}}{department_code}\d{{3}}$")
+        dept_page_pattern = re.compile(rf"8128\d{{2}}{department_code}\d{{3}}")
+
     results = []
     table = []
 
     with pdfplumber.open(file) as pdf:
-        # search for slug in pdf and get the page numbers where the slug is found
         pages: list[int] = []
         sem_page_found = False
         for i, page in enumerate(pdf.pages):
@@ -24,53 +36,75 @@ def extract_results(
             if text and ("Semester No. : " + f"{semester:02d}") in text:
                 sem_page_found = True
                 pages.append(i)
-            elif (text and regno_slug in text and sem_page_found) or (
-                text
-                and "Semester No. : " + f"{semester:02d}" in text
-                and sem_page_found
-            ):
-                pages.append(i)
-        print(f"Slug found on pages: {pages}")
+            elif text and sem_page_found:
+                if normalized_slug and normalized_slug in text:
+                    pages.append(i)
+                elif dept_page_pattern and dept_page_pattern.search(text):
+                    pages.append(i)
+
+        print(f"Semester pages found: {pages}")
 
         for page_num in pages:
             page = pdf.pages[page_num]
             text = page.extract_table()
             if not text:
-                print("No table found on the page.")
-                return
+                continue
             table.extend(text)
         if not table:
             print("No semester table found in the document.")
             return
 
         header = table[0]
-        # clean the header row by stripping whitespace and removing newlines if any
         header = [str(h).strip().replace("\n", "") for h in header]
         subject_indices = {
             subj: header.index(subj) for subj in recognized_subjects if subj in header
         }
 
         for row in table:
-            if row[0] and str(row[0]).startswith(regno_slug):
-                result_row = {
-                    "regno": row[0],
-                    "name": row[1] if len(row) > 1 else "N/A",
-                    "subjects": {},
-                }
-                for subject, idx in subject_indices.items():
-                    # find the idx of the subject in the header row
-                    # print(f"Processing {row[0]} - {subject}")
-                    result_row["subjects"][subject] = (
-                        row[idx] if idx < len(row) and row[idx] else "NA"
-                    )
-                if all(grade == "NA" for grade in result_row["subjects"].values()):
-                    print(
-                        f"Skipping {row[0]} as all grades are NA: {result_row['subjects']}"
-                    )
-                    continue
-                results.append(result_row)
+            regno = str(row[0]) if row and row[0] else ""
+            if not regno:
+                continue
+
+            include_row = False
+            if normalized_slug and regno.startswith(normalized_slug):
+                include_row = True
+            elif dept_pattern and dept_pattern.match(regno):
+                include_row = True
+
+            if not include_row:
+                continue
+
+            result_row = {
+                "regno": regno,
+                "name": row[1] if len(row) > 1 else "N/A",
+                "subjects": {},
+            }
+            for subject, idx in subject_indices.items():
+                result_row["subjects"][subject] = (
+                    row[idx] if idx < len(row) and row[idx] else "NA"
+                )
+            if all(grade == "NA" for grade in result_row["subjects"].values()):
+                print(
+                    f"Skipping {regno} as all grades are NA: {result_row['subjects']}"
+                )
+                continue
+            results.append(result_row)
 
         return results
+
+
+def extract_results(
+    regno_slug: str,
+    recognized_subjects: list[str],
+    semester: int = 5,
+    file: str = "205_ND2025.pdf",
+) -> list[Result] | None:
+    return extract_results_from_file(
+        regno_slug=regno_slug,
+        recognized_subjects=recognized_subjects,
+        semester=semester,
+        file=file,
+    )
 
 
 def store_results(results: list[dict[str, str | dict[str, str]]], filename: str):
@@ -201,6 +235,67 @@ def get_subject_wise_summary(
         )
 
     return subject_summary, footer
+
+
+def get_arrear_students(
+    results: list[dict[str, str | dict[str, str]]],
+    bucket: str | None = None,
+    exact_count: int | None = None,
+):
+    students_with_arrears: list[dict[str, str | int]] = []
+    counts = {
+        "1": 0,
+        "2": 0,
+        "3+": 0,
+        "4": 0,
+        "5": 0,
+    }
+
+    for result in results:
+        subjects = result.get("subjects")
+        if not isinstance(subjects, dict):
+            continue
+
+        # Keep the same interpretation as the semester summary logic.
+        if all(grade == "UA" for grade in subjects.values()):
+            continue
+
+        arrear_count = sum(grade == "U" for grade in subjects.values())
+
+        if arrear_count == 1:
+            counts["1"] += 1
+        if arrear_count == 2:
+            counts["2"] += 1
+        if arrear_count >= 3:
+            counts["3+"] += 1
+        if arrear_count == 4:
+            counts["4"] += 1
+        if arrear_count == 5:
+            counts["5"] += 1
+
+        include = False
+        if exact_count is not None:
+            include = arrear_count == exact_count
+        elif bucket == "1":
+            include = arrear_count == 1
+        elif bucket == "2":
+            include = arrear_count == 2
+        elif bucket == "3+":
+            include = arrear_count >= 3
+
+        if include:
+            students_with_arrears.append(
+                {
+                    "regno": str(result.get("regno", "")),
+                    "name": str(result.get("name", "N/A")),
+                    "arrears": arrear_count,
+                }
+            )
+
+    students_with_arrears.sort(
+        key=lambda item: (int(item["arrears"]), str(item["regno"]))
+    )
+    return counts, students_with_arrears
 
 
 def get_overall_summary(

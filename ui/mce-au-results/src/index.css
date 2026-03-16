@@ -1,16 +1,19 @@
-@import url("https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,700&family=Work+Sans:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap");
 
 :root {
-  --bg: #f7f6ee;
-  --panel: rgba(255, 255, 255, 0.9);
-  --surface: #f9faf5;
-  --pill: #edf4ed;
-  --line: #d8ddd1;
-  --line-strong: #b8c2af;
-  --text-hard: #132017;
-  --text-soft: #4f5d50;
+  --bg: #f3f5ff;
+  --panel: rgba(255, 255, 255, 0.94);
+  --surface: #eef1ff;
+  --pill: #e8ecff;
+  --line: #c6ceef;
+  --line-strong: #7f8dd6;
+  --text-hard: #0f1a56;
+  --text-soft: #364185;
+  --accent: #3040a0;
+  --accent-strong: #000060;
+  --pass-accent: #9c6d12;
 
-  font-family: "Work Sans", "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   font-size: 16px;
   line-height: 1.45;
   font-synthesis: none;
@@ -28,17 +31,13 @@ body {
   min-height: 100vh;
   color: var(--text-hard);
   background:
+    radial-gradient(circle at 10% 8%, rgba(48, 64, 160, 0.2), transparent 34%),
     radial-gradient(
-      circle at 8% 8%,
-      rgba(203, 229, 206, 0.56),
-      transparent 35%
+      circle at 92% 12%,
+      rgba(255, 240, 176, 0.38),
+      transparent 31%
     ),
-    radial-gradient(
-      circle at 92% 14%,
-      rgba(239, 212, 171, 0.5),
-      transparent 30%
-    ),
-    linear-gradient(180deg, #f8f7ef 0%, #f2f4ec 100%);
+    linear-gradient(180deg, #f7f8ff 0%, #edf1ff 100%);
 }
 
 #root {
@@ -49,7 +48,7 @@ h1,
 h2,
 h3 {
   margin: 0 0 0.5rem;
-  font-family: "Newsreader", Georgia, serif;
+  font-family: "Sora", "IBM Plex Sans", sans-serif;
   color: var(--text-hard);
 }
 

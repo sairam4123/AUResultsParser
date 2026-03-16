@@ -71,7 +71,7 @@ export function OverviewPage() {
 
   return (
     <section className="grid page-stack">
-      <article className="panel">
+      <article className="panel panel-kpi">
         <h2>Semester Summary</h2>
         {loading && !summary ? <p>Loading summary...</p> : null}
         {summary ? (

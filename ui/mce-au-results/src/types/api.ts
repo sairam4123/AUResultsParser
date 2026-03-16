@@ -38,6 +38,15 @@ export type StudentResponse = {
   student: Student;
 };
 
+export type StudentDirectoryItem = {
+  regno: string;
+  name: string;
+};
+
+export type StudentsDirectoryResponse = {
+  items: StudentDirectoryItem[];
+};
+
 export type RankListItem = {
   rank: number;
   regno: string;
@@ -63,4 +72,39 @@ export type DepartmentSummary = {
   name: string;
   code: number;
   summary: Summary;
+};
+
+export type ArrearStudent = {
+  regno: string;
+  name: string;
+  arrears: number;
+};
+
+export type ArrearsResponse = {
+  counts: {
+    "1": number;
+    "2": number;
+    "3+": number;
+    "4": number;
+    "5": number;
+  };
+  students: ArrearStudent[];
+};
+
+export type ImportResultsResponse = {
+  semester: number;
+  department_code: number;
+  source: string;
+  output: string;
+  output_path: string;
+  filter: {
+    regno_slug: string | null;
+    batch: string | null;
+    effective_slug: string | null;
+  };
+  count: number;
+};
+
+export type StorageFolderResponse = {
+  folder: string;
 };

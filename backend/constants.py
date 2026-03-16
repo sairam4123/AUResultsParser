@@ -180,7 +180,7 @@ def get_subjects_for_semester(semester: int) -> list[str]:
     return [sub for sub, sem in subject_sem_mapping.items() if sem == semester]
 
 
-def get_subject_name(subject_code: str, short_name: bool = True) -> str:
+def get_subject_name(subject_code: str, short_name: bool = False) -> str:
     name = subject_name_mapping.get(subject_code, "Unknown Subject")
     # take the first letter of each word in the subject name to create a short name
     return (

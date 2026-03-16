@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { getMeta } from "./api/client";
 import { AppLayout } from "./layout/AppLayout";
+import { ArrearsPage } from "./pages/ArrearsPage";
+import { ComparisonPage } from "./pages/ComparisonPage";
+import { ExportsPage } from "./pages/ExportsPage";
+import { ImportsPage } from "./pages/ImportsPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { RankingsPage } from "./pages/RankingsPage";
 import { StudentsPage } from "./pages/StudentsPage";
@@ -88,8 +92,12 @@ function App() {
           }
         >
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/arrears" element={<ArrearsPage />} />
           <Route path="/students" element={<StudentsPage />} />
+          <Route path="/comparison" element={<ComparisonPage />} />
           <Route path="/rankings" element={<RankingsPage />} />
+          <Route path="/exports" element={<ExportsPage />} />
+          <Route path="/imports" element={<ImportsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
