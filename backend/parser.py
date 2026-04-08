@@ -454,8 +454,8 @@ def generate_rank_list(
 
     prev_rank = 0
     for i, (sgpa, regNo, name) in enumerate(sgpa_results):
-        prev_sgpa = sgpa_results[i - 1][0]
-        if sgpa == prev_sgpa:
+        prev_sgpa = sgpa_results[i - 1][0] if i > 0 else None
+        if prev_sgpa is not None and sgpa == prev_sgpa:
             rank = prev_rank
         else:
             rank = prev_rank + 1

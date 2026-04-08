@@ -19,9 +19,14 @@ from backend.constants import (
 )
 
 
+def build_results_filename(batch: str, semester: int | str, dept_code: int | str) -> str:
+    return f"{batch}_sem_{semester}_results_{dept_code}.json"
+
+
 def interactive_result_summary():
     dept = input("Enter the department (any of 'IT', 'AIML'): ").strip().upper()
     dept_code = dept_codes.get(dept, "000")
+    batch = input("Enter the batch year (e.g., '2025'): ").strip()
 
     sems = input(
         "Enter the semesters to include (comma separated, e.g., '3,5,7'): "
@@ -33,7 +38,7 @@ def interactive_result_summary():
         if not sem.isdigit():
             print(f"Invalid semester '{sem}' entered. Skipping.")
             continue
-        sem_results = load_results(f"semester_{sem}_results_{dept_code}.json")
+        sem_results = load_results(build_results_filename(batch, sem, dept_code))
         if not sem_results:
             print(f"No results found for semester {sem}. Skipping.")
             continue
@@ -117,11 +122,12 @@ def interactive_extract_results():
     if not results:
         print("No results found for the given registration slug.")
     else:
-        store_results(results, f"semester_{semester}_results_{dept_code}.json")
+        output_file = build_results_filename(batch, semester, dept_code)
+        store_results(results, output_file)
         print(
             f"Results for {regno_slug} in semester {semester} is saved.",
             f"Subjects extracted: {recognized_subjects}",
-            f"Results stored in semester_{semester}_results_{dept_code}.json",
+            f"Results stored in {output_file}",
         )
 
 
@@ -130,7 +136,8 @@ def interactive_compare_students():
     dept_code = dept_codes.get(
         input("Enter the department (any of 'IT', 'AIML'): ").strip().upper(), "000"
     )
-    results = load_results(f"semester_{sem}_results_{dept_code}.json")
+    batch = input("Enter the batch year (e.g., '2025'): ").strip()
+    results = load_results(build_results_filename(batch, sem, dept_code))
     if not results:
         print(f"No results found for semester {sem} and department code {dept_code}.")
         return
@@ -155,7 +162,8 @@ def interactive_student_rank_list():
     dept_code = dept_codes.get(
         input("Enter the department (any of 'IT', 'AIML'): ").strip().upper(), "000"
     )
-    results = load_results(f"semester_{sem}_results_{dept_code}.json")
+    batch = input("Enter the batch year (e.g., '2025'): ").strip()
+    results = load_results(build_results_filename(batch, sem, dept_code))
     if not results:
         print(
             f"No results found for semester {sem} and department code {dept_code}. Try extracting results first."
@@ -180,7 +188,8 @@ def interactive_per_student_results():
     dept_code = dept_codes.get(
         input("Enter the department (any of 'IT', 'AIML'): ").strip().upper(), "000"
     )
-    results = load_results(f"semester_{sem}_results_{dept_code}.json")
+    batch = input("Enter the batch year (e.g., '2025'): ").strip()
+    results = load_results(build_results_filename(batch, sem, dept_code))
     if not results:
         print(f"No results found for semester {sem} and department code {dept_code}.")
         return
@@ -224,7 +233,7 @@ def interactive_class_result_analysis():
 
     slug = f"8128{batch[2:4]}{dept_code}"
 
-    results = load_results(f"semester_{sem}_results_{dept_code}.json")
+    results = load_results(build_results_filename(batch, sem, dept_code))
     if not results:
         print(
             f"No results found for semester {sem} and department code {dept_code}. Try extracting results first."

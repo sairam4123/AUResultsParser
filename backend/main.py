@@ -13,6 +13,11 @@ from backend.constants import (
     get_subject_name,
     subject_sem_mapping,
 )
+from backend.cgpa import (
+    build_class_cgpa_payload,
+    build_compare_breakdown_payload,
+    build_student_breakdown_payload,
+)
 from backend.parser import (
     compare_results_students,
     extract_results_from_file,
@@ -64,15 +69,137 @@ def resolve_department(department: str) -> tuple[str, int]:
     )
 
 
-def load_semester_results(semester: int, department: str):
+def normalize_batch_for_filename(batch: str) -> str:
+    value = batch.strip()
+    if not value.isdigit() or len(value) not in (2, 4):
+        raise HTTPException(
+            status_code=400,
+            detail="Batch must be 2 or 4 digits, e.g. 25 or 2025.",
+        )
+
+    return value if len(value) == 4 else f"20{value}"
+
+
+def build_results_filename(batch: str, semester: int, dept_code: int) -> str:
+    return f"{batch}_sem_{semester}_results_{dept_code}.json"
+
+
+def infer_batch_from_regno(regno: str) -> str | None:
+    digits = "".join(ch for ch in regno if ch.isdigit())
+    if len(digits) < 6 or not digits.startswith("8128"):
+        return None
+
+    return f"20{digits[4:6]}"
+
+
+def infer_batch_from_results(results: list[dict]) -> str | None:
+    for item in results:
+        regno = item.get("regno")
+        if isinstance(regno, str):
+            batch = infer_batch_from_regno(regno)
+            if batch:
+                return batch
+    return None
+
+
+def find_semester_result_file(
+    semester: int,
+    dept_code: int,
+    batch: str | None = None,
+) -> Path | None:
+    storage_folder = get_results_storage_folder()
+
+    if batch:
+        normalized_batch = normalize_batch_for_filename(batch)
+        batch_file = storage_folder / build_results_filename(
+            normalized_batch, semester, dept_code
+        )
+        if batch_file.exists():
+            return batch_file
+
+    matched_files = sorted(
+        storage_folder.glob(f"*_sem_{semester}_results_{dept_code}.json"),
+        key=lambda file: file.name,
+        reverse=True,
+    )
+    if matched_files:
+        return matched_files[0]
+
+    legacy_file = storage_folder / f"semester_{semester}_results_{dept_code}.json"
+    if legacy_file.exists():
+        return legacy_file
+
+    return None
+
+
+def load_semester_results(semester: int, department: str, batch: str | None = None):
     _, dept_code = resolve_department(department)
-    result_file = PROJECT_ROOT / f"semester_{semester}_results_{dept_code}.json"
-    if not result_file.exists():
+    result_file = find_semester_result_file(semester, dept_code, batch=batch)
+    if not result_file:
         raise HTTPException(
             status_code=404,
-            detail=f"Result file not found for semester {semester}, department {department}.",
+            detail=(
+                "Result file not found for semester "
+                f"{semester}, department {department}"
+                + (f", batch {batch}." if batch else ".")
+            ),
         )
     return load_results(str(result_file)), dept_code, result_file.name
+
+
+def parse_semesters_query(semesters: str) -> list[int]:
+    parts = [part.strip() for part in semesters.split(",") if part.strip()]
+    if not parts:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one semester, e.g. semesters=3,4,5",
+        )
+
+    parsed: set[int] = set()
+    for value in parts:
+        if not value.isdigit():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid semester value '{value}'.",
+            )
+
+        semester = int(value)
+        if not (3 <= semester <= 8):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Semester {semester} is out of allowed range 3-8.",
+            )
+        parsed.add(semester)
+
+    return sorted(parsed)
+
+
+def load_multiple_semester_results(
+    semesters: list[int],
+    department: str,
+    batch: str | None,
+) -> tuple[dict[int, list[dict]], int, dict[int, str]]:
+    _department_name, dept_code = resolve_department(department)
+
+    results_by_semester: dict[int, list[dict]] = {}
+    sources: dict[int, str] = {}
+
+    for semester in semesters:
+        result_file = find_semester_result_file(semester, dept_code, batch=batch)
+        if not result_file:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Result file not found for semester "
+                    f"{semester}, department {department}"
+                    + (f", batch {batch}." if batch else ".")
+                ),
+            )
+
+        results_by_semester[semester] = load_results(str(result_file))
+        sources[semester] = result_file.name
+
+    return results_by_semester, dept_code, sources
 
 
 def get_results_storage_folder() -> Path:
@@ -114,9 +241,9 @@ def set_results_storage_folder(folder: str) -> Path:
     return target
 
 
-def get_output_result_file(semester: int, dept_code: int) -> Path:
+def get_output_result_file(batch: str, semester: int, dept_code: int) -> Path:
     storage_folder = get_results_storage_folder()
-    return storage_folder / f"semester_{semester}_results_{dept_code}.json"
+    return storage_folder / build_results_filename(batch, semester, dept_code)
 
 
 @app.get("/")
@@ -156,8 +283,8 @@ def update_storage_folder(payload: StorageFolderPayload):
 
 
 @app.get("/api/summary")
-def semester_summary(semester: int, department: str):
-    results, dept_code, filename = load_semester_results(semester, department)
+def semester_summary(semester: int, department: str, batch: str | None = None):
+    results, dept_code, filename = load_semester_results(semester, department, batch)
     summary = get_sem_result_summary(results)
     return {
         "semester": semester,
@@ -168,8 +295,13 @@ def semester_summary(semester: int, department: str):
 
 
 @app.get("/api/student")
-def student_result(semester: int, department: str, regno: str):
-    results, dept_code, filename = load_semester_results(semester, department)
+def student_result(
+    semester: int,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    results, dept_code, filename = load_semester_results(semester, department, batch)
     student = get_student_results(regno.strip(), results)
     if not student:
         raise HTTPException(
@@ -193,6 +325,18 @@ def student_result(semester: int, department: str, regno: str):
     ]
 
     sgpa = calculate_sgpa(semester, subjects)
+    arrears = sum(grade == "U" for grade in subjects.values())
+
+    rank_items = generate_rank_list(results, semester, top_k=max(1, len(results)))
+    student_regno = student.get("regno")
+    rank = next(
+        (
+            item_rank
+            for item_rank, item_regno, _item_name, _item_sgpa in rank_items
+            if item_regno == student_regno
+        ),
+        None,
+    )
 
     return {
         "semester": semester,
@@ -202,6 +346,8 @@ def student_result(semester: int, department: str, regno: str):
             "regno": student.get("regno"),
             "name": student.get("name", "N/A"),
             "sgpa": round(sgpa, 2),
+            "rank": rank,
+            "arrears": arrears,
             "subjects": formatted_subjects,
         },
     }
@@ -211,10 +357,11 @@ def student_result(semester: int, department: str, regno: str):
 def students_directory(
     semester: int,
     department: str,
+    batch: str | None = None,
     q: str | None = Query(default=None, description="Search by regno or name"),
     limit: int = Query(default=2000, ge=1, le=5000),
 ):
-    results, dept_code, filename = load_semester_results(semester, department)
+    results, dept_code, filename = load_semester_results(semester, department, batch)
 
     query = q.strip().lower() if q else ""
     items: list[dict[str, str]] = []
@@ -251,9 +398,12 @@ def students_directory(
 
 @app.get("/api/rank-list")
 def rank_list(
-    semester: int, department: str, top_k: int = Query(default=10, ge=1, le=200)
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    top_k: int = Query(default=10, ge=1, le=200),
 ):
-    results, dept_code, filename = load_semester_results(semester, department)
+    results, dept_code, filename = load_semester_results(semester, department, batch)
     ranks = generate_rank_list(results, semester, top_k=top_k)
     payload = [
         {
@@ -274,8 +424,14 @@ def rank_list(
 
 
 @app.get("/api/compare")
-def compare_students(semester: int, department: str, regno1: str, regno2: str):
-    results, dept_code, filename = load_semester_results(semester, department)
+def compare_students(
+    semester: int,
+    department: str,
+    regno1: str,
+    regno2: str,
+    batch: str | None = None,
+):
+    results, dept_code, filename = load_semester_results(semester, department, batch)
     comparison = compare_results_students(
         regno1.strip(), regno2.strip(), results, semester
     )
@@ -290,13 +446,111 @@ def compare_students(semester: int, department: str, regno1: str, regno2: str):
     }
 
 
+@app.get("/api/cgpa/class")
+def cgpa_class(
+    semesters: str,
+    department: str,
+    batch: str | None = None,
+    regno: str | None = None,
+    sort_by: str = Query(default="cgpa", pattern="^(cgpa|arrears|regno)$"),
+    top: int | None = Query(default=None, ge=1, le=5000),
+):
+    semester_list = parse_semesters_query(semesters)
+    results_by_semester, dept_code, sources = load_multiple_semester_results(
+        semester_list,
+        department,
+        batch,
+    )
+
+    payload = build_class_cgpa_payload(
+        results_by_semester,
+        semester_list,
+        regno_filter=regno.strip() if regno else None,
+        sort_by=sort_by,
+        top=top,
+    )
+
+    return {
+        "department_code": dept_code,
+        "semesters": semester_list,
+        "sources": {str(key): value for key, value in sources.items()},
+        **payload,
+    }
+
+
+@app.get("/api/cgpa/breakdown")
+def cgpa_breakdown(
+    semesters: str,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    semester_list = parse_semesters_query(semesters)
+    results_by_semester, dept_code, sources = load_multiple_semester_results(
+        semester_list,
+        department,
+        batch,
+    )
+
+    payload = build_student_breakdown_payload(results_by_semester, regno.strip())
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found in selected semesters.",
+        )
+
+    return {
+        "department_code": dept_code,
+        "requested_semesters": semester_list,
+        "sources": {str(key): value for key, value in sources.items()},
+        **payload,
+    }
+
+
+@app.get("/api/cgpa/compare")
+def cgpa_compare(
+    semesters: str,
+    department: str,
+    regno1: str,
+    regno2: str,
+    batch: str | None = None,
+    subject_details: bool = Query(default=False),
+):
+    semester_list = parse_semesters_query(semesters)
+    results_by_semester, dept_code, sources = load_multiple_semester_results(
+        semester_list,
+        department,
+        batch,
+    )
+
+    payload = build_compare_breakdown_payload(
+        results_by_semester,
+        regno1.strip(),
+        regno2.strip(),
+        subject_details,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="One or both students not found in selected semesters.",
+        )
+
+    return {
+        "department_code": dept_code,
+        "semesters": semester_list,
+        "sources": {str(key): value for key, value in sources.items()},
+        **payload,
+    }
+
+
 @app.get("/api/subject-summary")
 def subject_summary(
     semester: int,
     department: str,
+    batch: str | None = None,
     regnos: str | None = Query(default=None, description="Comma separated regnos"),
 ):
-    results, dept_code, filename = load_semester_results(semester, department)
+    results, dept_code, filename = load_semester_results(semester, department, batch)
 
     regno_list = None
     if regnos:
@@ -325,6 +579,7 @@ def subject_summary(
 def arrears_summary(
     semester: int,
     department: str,
+    batch: str | None = None,
     bucket: str | None = Query(default=None, pattern="^(1|2|3\\+)$"),
     exact_count: int | None = Query(default=None, ge=0, le=20),
 ):
@@ -334,7 +589,7 @@ def arrears_summary(
             detail="Provide either bucket or exact_count, not both.",
         )
 
-    results, dept_code, filename = load_semester_results(semester, department)
+    results, dept_code, filename = load_semester_results(semester, department, batch)
     counts, students = get_arrear_students(
         results,
         bucket=bucket,
@@ -374,14 +629,10 @@ async def import_results_file(
         )
 
     batch_slug = None
+    filename_batch = None
     if normalized_batch:
-        if not normalized_batch.isdigit() or len(normalized_batch) not in (2, 4):
-            raise HTTPException(
-                status_code=400,
-                detail="Batch must be 2 or 4 digits, e.g. 25 or 2025.",
-            )
-
-        yy = normalized_batch[-2:]
+        filename_batch = normalize_batch_for_filename(normalized_batch)
+        yy = filename_batch[-2:]
         batch_slug = f"8128{yy}{dept_code}"
 
     effective_slug = normalized_slug or batch_slug
@@ -426,7 +677,14 @@ async def import_results_file(
             detail="No matching results found in the uploaded file for the selected semester and department.",
         )
 
-    output_file = get_output_result_file(semester, dept_code)
+    filename_batch = filename_batch or infer_batch_from_results(results)
+    if not filename_batch:
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to infer batch from extracted results.",
+        )
+
+    output_file = get_output_result_file(filename_batch, semester, dept_code)
     store_results(results, str(output_file))
 
     return {
@@ -445,9 +703,11 @@ async def import_results_file(
 
 
 @app.get("/api/export-json")
-def export_semester_json(semester: int, department: str):
-    results, dept_code, _ = load_semester_results(semester, department)
-    filename = f"semester_{semester}_results_{dept_code}.json"
+def export_semester_json(semester: int, department: str, batch: str | None = None):
+    results, _dept_code, source_filename = load_semester_results(
+        semester, department, batch
+    )
+    filename = source_filename
     payload = json.dumps(results, indent=2)
 
     return Response(

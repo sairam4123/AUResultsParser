@@ -1,5 +1,8 @@
 import type {
   ArrearsResponse,
+  CgpaBreakdownResponse,
+  CgpaClassResponse,
+  CgpaCompareResponse,
   DepartmentOption,
   DepartmentSummary,
   ImportResultsResponse,
@@ -27,6 +30,23 @@ const fetchJson = async <T>(path: string): Promise<T> => {
   }
 
   return payload as T;
+};
+
+const buildCgpaQuery = (params: {
+  semesters: string;
+  department: string;
+  batch?: string;
+}) => {
+  const query = new URLSearchParams({
+    semesters: params.semesters,
+    department: params.department,
+  });
+
+  if (params.batch?.trim()) {
+    query.set("batch", params.batch.trim());
+  }
+
+  return query;
 };
 
 export const getMeta = async (): Promise<Meta> => {
@@ -224,4 +244,63 @@ export const setStorageFolder = async (folder: string): Promise<string> => {
   }
 
   return (payload as StorageFolderResponse).folder;
+};
+
+export const getCgpaClass = async (params: {
+  semesters: string;
+  department: string;
+  batch?: string;
+  regno?: string;
+  sortBy?: "cgpa" | "arrears" | "regno";
+  top?: number;
+}): Promise<CgpaClassResponse> => {
+  const query = buildCgpaQuery(params);
+
+  if (params.regno?.trim()) {
+    query.set("regno", params.regno.trim());
+  }
+  if (params.sortBy) {
+    query.set("sort_by", params.sortBy);
+  }
+  if (typeof params.top === "number" && Number.isFinite(params.top)) {
+    query.set("top", String(params.top));
+  }
+
+  return fetchJson<CgpaClassResponse>(
+    `${BASE_API}/cgpa/class?${query.toString()}`,
+  );
+};
+
+export const getCgpaBreakdown = async (params: {
+  semesters: string;
+  department: string;
+  regno: string;
+  batch?: string;
+}): Promise<CgpaBreakdownResponse> => {
+  const query = buildCgpaQuery(params);
+  query.set("regno", params.regno.trim());
+
+  return fetchJson<CgpaBreakdownResponse>(
+    `${BASE_API}/cgpa/breakdown?${query.toString()}`,
+  );
+};
+
+export const getCgpaCompare = async (params: {
+  semesters: string;
+  department: string;
+  regno1: string;
+  regno2: string;
+  batch?: string;
+  subjectDetails?: boolean;
+}): Promise<CgpaCompareResponse> => {
+  const query = buildCgpaQuery(params);
+  query.set("regno1", params.regno1.trim());
+  query.set("regno2", params.regno2.trim());
+  if (params.subjectDetails) {
+    query.set("subject_details", "true");
+  }
+
+  return fetchJson<CgpaCompareResponse>(
+    `${BASE_API}/cgpa/compare?${query.toString()}`,
+  );
 };

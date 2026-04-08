@@ -4,6 +4,7 @@ import { getMeta } from "./api/client";
 import { AppLayout } from "./layout/AppLayout";
 import { ArrearsPage } from "./pages/ArrearsPage";
 import { ComparisonPage } from "./pages/ComparisonPage";
+import { CgpaPage } from "./pages/CgpaPage";
 import { ExportsPage } from "./pages/ExportsPage";
 import { ImportsPage } from "./pages/ImportsPage";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -94,6 +95,7 @@ function App() {
           <Route path="/" element={<OverviewPage />} />
           <Route path="/arrears" element={<ArrearsPage />} />
           <Route path="/students" element={<StudentsPage />} />
+          <Route path="/cgpa" element={<CgpaPage />} />
           <Route path="/comparison" element={<ComparisonPage />} />
           <Route path="/rankings" element={<RankingsPage />} />
           <Route path="/exports" element={<ExportsPage />} />

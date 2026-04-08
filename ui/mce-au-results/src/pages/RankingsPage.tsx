@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useOutletContext } from "react-router-dom";
 import { getRankList } from "../api/client";
@@ -13,20 +13,34 @@ export function RankingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const loadRankList = useCallback(
+    async (limit: number) => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const payload = await getRankList(semester, department, limit);
+        setRankList(payload);
+      } catch (err) {
+        setRankList([]);
+        setError(
+          err instanceof Error ? err.message : "Failed to load rank list",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [department, semester],
+  );
+
+  useEffect(() => {
+    setTopK(10);
+    loadRankList(10).catch(() => undefined);
+  }, [loadRankList]);
+
   const onGetRankList = async (event: FormEvent) => {
     event.preventDefault();
-    setLoading(true);
-    setError("");
-
-    try {
-      const payload = await getRankList(semester, department, topK);
-      setRankList(payload);
-    } catch (err) {
-      setRankList([]);
-      setError(err instanceof Error ? err.message : "Failed to load rank list");
-    } finally {
-      setLoading(false);
-    }
+    await loadRankList(topK);
   };
 
   return (

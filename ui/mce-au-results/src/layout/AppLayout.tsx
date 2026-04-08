@@ -100,6 +100,14 @@ export function AppLayout({
             Students
           </NavLink>
           <NavLink
+            to="/cgpa"
+            className={({ isActive }) =>
+              isActive ? "nav-pill active" : "nav-pill"
+            }
+          >
+            CGPA
+          </NavLink>
+          <NavLink
             to="/comparison"
             className={({ isActive }) =>
               isActive ? "nav-pill active" : "nav-pill"

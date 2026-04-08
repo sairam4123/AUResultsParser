@@ -26,6 +26,8 @@ export type Student = {
   regno: string;
   name: string;
   sgpa: number;
+  rank: number | null;
+  arrears: number;
   subjects: {
     code: string;
     name: string;
@@ -107,4 +109,104 @@ export type ImportResultsResponse = {
 
 export type StorageFolderResponse = {
   folder: string;
+};
+
+export type CgpaClassSummary = {
+  students_considered: number;
+  average_cgpa: number;
+  total_arrears: number;
+  students_without_arrears: number;
+};
+
+export type CgpaClassRow = {
+  regno: string;
+  name: string;
+  semester_sgpa: Record<string, number | null>;
+  cgpa: number | null;
+  arrears: number;
+  credits: number;
+};
+
+export type CgpaClassResponse = {
+  department_code: number;
+  semesters: number[];
+  summary: CgpaClassSummary;
+  rows: CgpaClassRow[];
+};
+
+export type CgpaBreakdownSubjectRow = {
+  code: string;
+  name: string;
+  grade: string;
+  credit: number;
+  gp: number | null;
+  credit_x_gp: number;
+  included: boolean;
+};
+
+export type CgpaBreakdownSemester = {
+  semester: number;
+  subjects: CgpaBreakdownSubjectRow[];
+  totals: {
+    credits: number;
+    grade_points: number;
+    sgpa: number | null;
+    arrears: number;
+  };
+};
+
+export type CgpaBreakdownResponse = {
+  department_code: number;
+  requested_semesters: number[];
+  regno: string;
+  name: string;
+  overall: {
+    credits: number;
+    grade_points: number;
+    cgpa: number | null;
+    arrears: number;
+  };
+  semesters: CgpaBreakdownSemester[];
+};
+
+export type CgpaCompareRow = {
+  metric: string;
+  student1_value: number | null;
+  student2_value: number | null;
+  diff: number | null;
+  student1_arrears: number;
+  student2_arrears: number;
+  student1_credits: number;
+  student2_credits: number;
+};
+
+export type CgpaCompareSubjectRow = {
+  code: string;
+  name: string;
+  credit: number;
+  student1_grade: string;
+  student2_grade: string;
+  student1_credit_x_gp: number;
+  student2_credit_x_gp: number;
+  diff: number;
+};
+
+export type CgpaCompareSubjectDetails = {
+  semester: number;
+  rows: CgpaCompareSubjectRow[];
+};
+
+export type CgpaCompareResponse = {
+  department_code: number;
+  semesters: number[];
+  student1: {
+    regno: string;
+    name: string;
+  };
+  student2: {
+    regno: string;
+    name: string;
+  };
+  rows: CgpaCompareRow[];
+  subject_details: CgpaCompareSubjectDetails[];
 };

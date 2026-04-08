@@ -127,6 +127,9 @@ export function StudentsPage() {
               <strong>{student.name}</strong> ({student.regno})
             </p>
             <p>SGPA: {student.sgpa.toFixed(2)}</p>
+            <p>
+              Rank: {student.rank ?? "N/A"} | Arrears: {student.arrears}
+            </p>
             <div className="table-wrap">
               <table>
                 <thead>

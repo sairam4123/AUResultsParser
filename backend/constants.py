@@ -20,11 +20,13 @@ subject_credit_mapping = {
     "CS3691": 4,
     "CCS334": 3,
     "CCS335": 3,
-    "CCS366": 3,
-    "CCS360": 3,
+    # honor courses disabled for now
+    "CCS366": 0,
+    "CCS360": 0,
+    # ----
     "MX3084": 0,  # Non credit course
     "IT3511": 2,
-    "NM1120": 0,  # 2 credits (currently disabled)
+    "NM1120": 2,  # 2 credits (currently disabled)
     # Sem 4 subjects
     "CS3451": 3,
     "CS3452": 3,
@@ -35,7 +37,7 @@ subject_credit_mapping = {
     "GE3451": 2,
     "IT3401": 4,
     # Disable the naan mudhalvan by setting credits to 0
-    "NM1075": 0,  # 2 credits (currently disabled)
+    "NM1075": 2,  # 2 credits (currently disabled)
     "MA3354": 4,
     "CS3351": 4,
     "CS3352": 3,
@@ -45,6 +47,7 @@ subject_credit_mapping = {
     "CS3381": 1.5,
     "CS3361": 2,
     "GE3361": 1,
+    "NM1113": 0,  # 2 credits (currently disabled)
 }
 
 subject_sem_mapping = {
@@ -89,7 +92,7 @@ subject_sem_mapping = {
     "CS3381": 3,
     "CS3361": 3,
     "GE3361": 3,
-    "NM1113": 0,  # 2 credits (currently disabled)
+    "NM1113": 3,  # 2 credits (currently disabled)
 }
 
 subject_name_mapping = {

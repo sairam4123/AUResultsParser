@@ -9,7 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-*.json
+*results*.json
 *.pdf
 _*.py
 !__init__.py
