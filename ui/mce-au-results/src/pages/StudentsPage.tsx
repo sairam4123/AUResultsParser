@@ -19,7 +19,8 @@ const toOption = (item: StudentDirectoryItem): Option => ({
 });
 
 export function StudentsPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const { department, semester, batch } =
+    useOutletContext<LayoutOutletContext>();
   const menuPortalTarget =
     typeof window !== "undefined" ? document.body : undefined;
 
@@ -42,7 +43,12 @@ export function StudentsPage() {
     const loadDirectory = async () => {
       setLoadingDirectory(true);
       try {
-        const items = await getStudentsDirectory(semester, department);
+        const items = await getStudentsDirectory(
+          semester,
+          department,
+          undefined,
+          batch,
+        );
         if (!active) {
           return;
         }
@@ -64,7 +70,7 @@ export function StudentsPage() {
     return () => {
       active = false;
     };
-  }, [department, semester]);
+  }, [department, semester, batch]);
 
   const onSearchStudent = async (event: FormEvent) => {
     event.preventDefault();
@@ -80,6 +86,7 @@ export function StudentsPage() {
         semester,
         department,
         lookupOption.value,
+        batch,
       );
       setStudent(payload);
     } catch (err) {

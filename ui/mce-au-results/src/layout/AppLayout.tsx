@@ -17,8 +17,10 @@ type AppLayoutProps = {
   semesters: number[];
   department: string;
   semester: number;
+  batch: string;
   onDepartmentChange: (value: string) => void;
   onSemesterChange: (value: number) => void;
+  onBatchChange: (value: string) => void;
   error: string;
   metaLoading: boolean;
 };
@@ -28,8 +30,10 @@ export function AppLayout({
   semesters,
   department,
   semester,
+  batch,
   onDepartmentChange,
   onSemesterChange,
+  onBatchChange,
   error,
   metaLoading,
 }: AppLayoutProps) {
@@ -190,15 +194,33 @@ export function AppLayout({
               classNamePrefix="rs"
             />
           </div>
+          <div className="input-wrap">
+            <label htmlFor="batchInput">Batch (Optional)</label>
+            <input
+              id="batchInput"
+              type="text"
+              inputMode="numeric"
+              value={batch}
+              onChange={(event) => {
+                const digitsOnly = event.target.value
+                  .replace(/\D/g, "")
+                  .slice(0, 4);
+                onBatchChange(digitsOnly);
+              }}
+              placeholder="2023 or 23"
+              maxLength={4}
+            />
+          </div>
           <div className="selection-pill">
-            Selected: {department} - Semester {semester}
+            Selected: {department} - Semester {semester} - Batch{" "}
+            {batch.trim() || "Latest"}
           </div>
         </section>
       </section>
 
       {error ? <p className="error-banner">{error}</p> : null}
 
-      <Outlet context={{ department, semester, departments }} />
+      <Outlet context={{ department, semester, batch, departments }} />
 
       <footer className="site-disclaimer" aria-label="Disclaimer">
         <p>

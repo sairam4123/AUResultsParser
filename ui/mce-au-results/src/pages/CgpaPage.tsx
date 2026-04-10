@@ -17,9 +17,8 @@ const formatMaybe = (value: number | null, suffix = "") => {
 };
 
 export function CgpaPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
-
-  const [batch, setBatch] = useState("2023");
+  const { department, semester, batch } =
+    useOutletContext<LayoutOutletContext>();
   const [semestersInput, setSemestersInput] = useState("3,4,5");
 
   const [sortBy, setSortBy] = useState<"cgpa" | "arrears" | "regno">("cgpa");
@@ -147,15 +146,6 @@ export function CgpaPage() {
         </div>
         <div className="grid-two">
           <div className="input-wrap">
-            <label htmlFor="cgpaBatch">Batch</label>
-            <input
-              id="cgpaBatch"
-              value={batch}
-              onChange={(event) => setBatch(event.target.value)}
-              placeholder="2023"
-            />
-          </div>
-          <div className="input-wrap">
             <label htmlFor="cgpaSemesters">Semesters</label>
             <div className="inline-form">
               <input
@@ -173,6 +163,9 @@ export function CgpaPage() {
               </button>
             </div>
             <p className="hint">Enter comma-separated values like 3,4,5.</p>
+            <p className="hint">
+              Batch filter from top bar: {batch.trim() || "Latest available"}.
+            </p>
           </div>
         </div>
       </article>

@@ -6,7 +6,8 @@ import type { LayoutOutletContext } from "../layout/layoutContext";
 import type { RankListItem } from "../types/api";
 
 export function RankingsPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const { department, semester, batch } =
+    useOutletContext<LayoutOutletContext>();
 
   const [rankList, setRankList] = useState<RankListItem[]>([]);
   const [topK, setTopK] = useState(10);
@@ -19,7 +20,7 @@ export function RankingsPage() {
       setError("");
 
       try {
-        const payload = await getRankList(semester, department, limit);
+        const payload = await getRankList(semester, department, limit, batch);
         setRankList(payload);
       } catch (err) {
         setRankList([]);
@@ -30,7 +31,7 @@ export function RankingsPage() {
         setLoading(false);
       }
     },
-    [department, semester],
+    [department, semester, batch],
   );
 
   useEffect(() => {

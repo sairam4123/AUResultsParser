@@ -139,7 +139,8 @@ const buildComparisonTable = (students: Student[]): ComparisonTable => {
 };
 
 export function ExportsPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const { department, semester, batch } =
+    useOutletContext<LayoutOutletContext>();
   const menuPortalTarget =
     typeof window !== "undefined" ? document.body : undefined;
 
@@ -168,7 +169,12 @@ export function ExportsPage() {
     const loadDirectory = async () => {
       setLoadingDirectory(true);
       try {
-        const items = await getStudentsDirectory(semester, department);
+        const items = await getStudentsDirectory(
+          semester,
+          department,
+          undefined,
+          batch,
+        );
         if (!active) {
           return;
         }
@@ -189,7 +195,7 @@ export function ExportsPage() {
     return () => {
       active = false;
     };
-  }, [department, semester]);
+  }, [department, semester, batch]);
 
   const onExportStudentPdf = async (event: FormEvent) => {
     event.preventDefault();
@@ -207,6 +213,7 @@ export function ExportsPage() {
         semester,
         department,
         studentOption.value,
+        batch,
       );
       const rows = student.subjects.map((subject) => [
         subject.code,
@@ -253,7 +260,7 @@ export function ExportsPage() {
     try {
       const students = await Promise.all(
         comparisonOptions.map((option) =>
-          getStudent(semester, department, option.value),
+          getStudent(semester, department, option.value, batch),
         ),
       );
 
@@ -303,9 +310,13 @@ export function ExportsPage() {
         selectedArrearTabs.map(async (tab) => {
           const payload =
             tab === "1" || tab === "2" || tab === "3+"
-              ? await getArrearStudents(semester, department, { bucket: tab })
+              ? await getArrearStudents(semester, department, {
+                  bucket: tab,
+                  batch,
+                })
               : await getArrearStudents(semester, department, {
                   exactCount: Number(tab),
+                  batch,
                 });
 
           return [tab, payload.students] as const;
@@ -343,7 +354,7 @@ export function ExportsPage() {
     setError("");
     setMessage("");
     try {
-      const rankList = await getRankList(semester, department, topK);
+      const rankList = await getRankList(semester, department, topK, batch);
       await exportSingleTablePdf(`rankings-sem-${semester}-${department}.pdf`, {
         title: "Rank List",
         subtitle: `${department} Semester ${semester} | Top ${rankList.length}`,

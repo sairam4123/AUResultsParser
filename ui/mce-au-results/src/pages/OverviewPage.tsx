@@ -6,7 +6,7 @@ import type { LayoutOutletContext } from "../layout/layoutContext";
 import type { DepartmentSummary, Summary } from "../types/api";
 
 export function OverviewPage() {
-  const { department, semester, departments } =
+  const { department, semester, batch, departments } =
     useOutletContext<LayoutOutletContext>();
 
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -26,8 +26,8 @@ export function OverviewPage() {
       setError("");
       try {
         const [selectedSummary, allDepartmentSummaries] = await Promise.all([
-          getSummary(semester, department),
-          getDepartmentSummaries(semester, departments),
+          getSummary(semester, department, batch),
+          getDepartmentSummaries(semester, departments, batch),
         ]);
 
         if (!active) {
@@ -65,7 +65,7 @@ export function OverviewPage() {
     return () => {
       active = false;
     };
-  }, [department, semester, departments]);
+  }, [department, semester, batch, departments]);
 
   const topDepartment = useMemo(() => departmentRows[0], [departmentRows]);
 

@@ -32,6 +32,12 @@ const fetchJson = async <T>(path: string): Promise<T> => {
   return payload as T;
 };
 
+const appendBatch = (query: URLSearchParams, batch?: string) => {
+  if (batch?.trim()) {
+    query.set("batch", batch.trim());
+  }
+};
+
 const buildCgpaQuery = (params: {
   semesters: string;
   department: string;
@@ -56,9 +62,16 @@ export const getMeta = async (): Promise<Meta> => {
 export const getSummary = async (
   semester: number,
   department: string,
+  batch?: string,
 ): Promise<SummaryResponse["summary"]> => {
+  const query = new URLSearchParams({
+    semester: String(semester),
+    department,
+  });
+  appendBatch(query, batch);
+
   const payload = await fetchJson<SummaryResponse>(
-    `${BASE_API}/summary?semester=${semester}&department=${department}`,
+    `${BASE_API}/summary?${query.toString()}`,
   );
   return payload.summary;
 };
@@ -67,9 +80,17 @@ export const getStudent = async (
   semester: number,
   department: string,
   regno: string,
+  batch?: string,
 ): Promise<StudentResponse["student"]> => {
+  const query = new URLSearchParams({
+    semester: String(semester),
+    department,
+    regno: regno.trim(),
+  });
+  appendBatch(query, batch);
+
   const payload = await fetchJson<StudentResponse>(
-    `${BASE_API}/student?semester=${semester}&department=${department}&regno=${regno.trim()}`,
+    `${BASE_API}/student?${query.toString()}`,
   );
   return payload.student;
 };
@@ -78,9 +99,17 @@ export const getRankList = async (
   semester: number,
   department: string,
   topK: number,
+  batch?: string,
 ): Promise<RankListResponse["items"]> => {
+  const query = new URLSearchParams({
+    semester: String(semester),
+    department,
+    top_k: String(topK),
+  });
+  appendBatch(query, batch);
+
   const payload = await fetchJson<RankListResponse>(
-    `${BASE_API}/rank-list?semester=${semester}&department=${department}&top_k=${topK}`,
+    `${BASE_API}/rank-list?${query.toString()}`,
   );
   return payload.items;
 };
@@ -89,11 +118,13 @@ export const getStudentsDirectory = async (
   semester: number,
   department: string,
   query?: string,
+  batch?: string,
 ): Promise<StudentDirectoryItem[]> => {
   const params = new URLSearchParams({
     semester: String(semester),
     department,
   });
+  appendBatch(params, batch);
 
   if (query && query.trim()) {
     params.set("q", query.trim());
@@ -108,9 +139,10 @@ export const getStudentsDirectory = async (
 export const getDepartmentSummaries = async (
   semester: number,
   departments: DepartmentOption[],
+  batch?: string,
 ): Promise<DepartmentSummary[]> => {
   const requests = departments.map(async (department) => {
-    const summary = await getSummary(semester, department.name);
+    const summary = await getSummary(semester, department.name, batch);
     return {
       name: department.name,
       code: department.code,
@@ -132,12 +164,13 @@ export const getDepartmentSummaries = async (
 export const getArrearStudents = async (
   semester: number,
   department: string,
-  options: { bucket?: "1" | "2" | "3+"; exactCount?: number },
+  options: { bucket?: "1" | "2" | "3+"; exactCount?: number; batch?: string },
 ): Promise<ArrearsResponse> => {
   const query = new URLSearchParams({
     semester: String(semester),
     department,
   });
+  appendBatch(query, options.batch);
 
   if (options.bucket) {
     query.set("bucket", options.bucket);
@@ -184,11 +217,13 @@ export const importResultsFile = async (
 export const downloadSemesterJson = async (
   semester: number,
   department: string,
+  batch?: string,
 ): Promise<void> => {
   const query = new URLSearchParams({
     semester: String(semester),
     department,
   });
+  appendBatch(query, batch);
 
   const response = await fetch(`${BASE_API}/export-json?${query.toString()}`);
   if (!response.ok) {

@@ -13,6 +13,15 @@ subject_credit_mapping = {
     "IT3711": 3,
     "OHS352": 3,
     "SB8067": 3,
+    # Sem 6 subjects
+    "CCS356": 4,
+    "CCS370": 3,
+    "CCS336": 3,
+    "CCW332": 3,
+    "CCS372": 3,
+    "IT3681": 1.5,
+    "MX3085": 0,  # Non credit course
+    "NM1067": 2,  # Naan Mudhalvan (currently disabled)
     # Sem 5 subjects
     "CS3591": 4,
     "IT3501": 3,
@@ -60,6 +69,15 @@ subject_sem_mapping = {
     "IT3711": 7,
     "OHS352": 7,
     "SB8067": 7,
+    # Sem 6 subjects
+    "CCS356": 6,
+    "CCS370": 6,
+    "CCS336": 6,
+    "CCW332": 6,
+    "CCS372": 6,
+    "IT3681": 6,
+    "MX3085": 6,
+    "NM1067": 6,
     # Sem 5 subjects
     "CS3591": 5,
     "IT3501": 5,
@@ -99,12 +117,21 @@ subject_name_mapping = {
     # Sem 7 subjects
     "GE3791": "Ethics and Human Values",
     "AI3021": "IT in Agriculture",
-    "CCS355": "Unknown",
-    "CCS374": "Unknown",
-    "GE3752": "Unknown",
-    "IT3711": "Unknown",
-    "OHS352": "Unknown",
-    "SB8067": "Unknown",
+    "CCS355": "Neural Network and Deep Learning",
+    "CCS374": "Web Application Security",
+    "GE3752": "Total Quality Management",
+    "IT3711": "Summer Internship",
+    "OHS352": "Project Report Writing",
+    "SB8067": "Salesforce Developer",
+    # Sem 6 subjects
+    "CCS356": "Object Oriented Software Engineering",
+    "CCS370": "UI & UX Design",
+    "CCS336": "Cloud Service Management",
+    "CCW332": "Digital Marketing",
+    "CCS372": "Virtualization",
+    "IT3681": "Mobile Application Development Laboratory",
+    "MX3085": "Well Being with Yoga",
+    "NM1067": "Naan Mudhalvan",
     # Sem 5 subjects
     "CS3591": "Computer Networks",
     "IT3501": "Full Stack Web Development",

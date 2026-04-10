@@ -17,7 +17,8 @@ const tabLabel: Record<ArrearTab, string> = {
 };
 
 export function ArrearsPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const { department, semester, batch } =
+    useOutletContext<LayoutOutletContext>();
 
   const [arrearCounts, setArrearCounts] = useState({
     "1": 0,
@@ -52,7 +53,9 @@ export function ArrearsPage() {
 
     const loadCounts = async () => {
       try {
-        const payload = await getArrearStudents(semester, department, {});
+        const payload = await getArrearStudents(semester, department, {
+          batch,
+        });
         if (active) {
           setArrearCounts(payload.counts);
         }
@@ -68,7 +71,7 @@ export function ArrearsPage() {
     return () => {
       active = false;
     };
-  }, [department, semester]);
+  }, [department, semester, batch]);
 
   useEffect(() => {
     if (!department || !semester || selectedTabs.length === 0) {
@@ -86,9 +89,13 @@ export function ArrearsPage() {
           selectedTabs.map(async (tab) => {
             const payload =
               tab === "1" || tab === "2" || tab === "3+"
-                ? await getArrearStudents(semester, department, { bucket: tab })
+                ? await getArrearStudents(semester, department, {
+                    bucket: tab,
+                    batch,
+                  })
                 : await getArrearStudents(semester, department, {
                     exactCount: Number(tab),
+                    batch,
                   });
 
             return [tab, payload.students] as const;
@@ -129,7 +136,7 @@ export function ArrearsPage() {
     return () => {
       active = false;
     };
-  }, [department, semester, selectedTabs]);
+  }, [department, semester, batch, selectedTabs]);
 
   const toggleTab = (tab: ArrearTab) => {
     setSelectedTabs((current) => {

@@ -115,7 +115,8 @@ const buildComparisonTable = (students: Student[]): ComparisonTable => {
 };
 
 export function ComparisonPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const { department, semester, batch } =
+    useOutletContext<LayoutOutletContext>();
   const menuPortalTarget =
     typeof window !== "undefined" ? document.body : undefined;
 
@@ -137,7 +138,12 @@ export function ComparisonPage() {
     const loadDirectory = async () => {
       setLoadingDirectory(true);
       try {
-        const items = await getStudentsDirectory(semester, department);
+        const items = await getStudentsDirectory(
+          semester,
+          department,
+          undefined,
+          batch,
+        );
         if (!active) {
           return;
         }
@@ -158,7 +164,7 @@ export function ComparisonPage() {
     return () => {
       active = false;
     };
-  }, [department, semester]);
+  }, [department, semester, batch]);
 
   const onCompareStudents = async (event: FormEvent) => {
     event.preventDefault();
@@ -179,7 +185,7 @@ export function ComparisonPage() {
     try {
       const students = await Promise.all(
         compareOptions.map((option) =>
-          getStudent(semester, department, option.value),
+          getStudent(semester, department, option.value, batch),
         ),
       );
       setComparison(buildComparisonTable(students));

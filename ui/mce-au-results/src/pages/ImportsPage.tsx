@@ -9,7 +9,11 @@ import {
 import type { LayoutOutletContext } from "../layout/layoutContext";
 
 export function ImportsPage() {
-  const { department, semester } = useOutletContext<LayoutOutletContext>();
+  const {
+    department,
+    semester,
+    batch: selectedBatch,
+  } = useOutletContext<LayoutOutletContext>();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [actionLoading, setActionLoading] = useState<
@@ -116,9 +120,10 @@ export function ImportsPage() {
     setActionError("");
     setActionMessage("");
     try {
-      await downloadSemesterJson(semester, department);
+      await downloadSemesterJson(semester, department, selectedBatch);
       setActionMessage(
-        `Downloaded semester JSON for ${department}, Semester ${semester}.`,
+        `Downloaded semester JSON for ${department}, Semester ${semester}` +
+          (selectedBatch.trim() ? `, Batch ${selectedBatch.trim()}.` : "."),
       );
     } catch (err) {
       setActionError(

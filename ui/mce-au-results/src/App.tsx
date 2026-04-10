@@ -17,6 +17,7 @@ function App() {
   const [meta, setMeta] = useState<Meta>({ departments: [], semesters: [] });
   const [department, setDepartment] = useState("IT");
   const [semester, setSemester] = useState(5);
+  const [batch, setBatch] = useState("");
   const [metaLoading, setMetaLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -85,8 +86,10 @@ function App() {
               semesters={meta.semesters}
               department={department}
               semester={semester}
+              batch={batch}
               onDepartmentChange={setDepartment}
               onSemesterChange={setSemester}
+              onBatchChange={setBatch}
               error={error}
               metaLoading={metaLoading}
             />
