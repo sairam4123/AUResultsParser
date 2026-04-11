@@ -72,17 +72,28 @@ export function OverviewPage() {
   return (
     <section className="grid page-stack">
       <article className="panel panel-kpi">
-        <h2>Semester Summary</h2>
+        <div className="panel-head panel-head-stack">
+          <h2>Semester Snapshot</h2>
+          <p className="hint">
+            Quick health metrics for the currently selected department,
+            semester, and batch.
+          </p>
+        </div>
         {loading && !summary ? <p>Loading summary...</p> : null}
         {summary ? (
           <SummaryCards summary={summary} />
         ) : (
-          <p>No summary available for this selection.</p>
+          <p className="hint">No summary available for this selection.</p>
         )}
       </article>
 
       <article className="panel">
-        <h2>Per Department Summary</h2>
+        <div className="panel-head panel-head-stack">
+          <h2>Department Comparison</h2>
+          <p className="hint">
+            Compare pass metrics across departments for Semester {semester}.
+          </p>
+        </div>
         {error ? <p className="inline-error">{error}</p> : null}
         {topDepartment ? (
           <p className="callout">

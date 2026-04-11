@@ -3,8 +3,10 @@ import type { FormEvent } from "react";
 import Select from "react-select";
 import { useOutletContext } from "react-router-dom";
 import { getStudent, getStudentsDirectory } from "../api/client";
+import { StudentNameLink } from "../components/StudentNameLink";
 import type { LayoutOutletContext } from "../layout/layoutContext";
 import type { Student, StudentDirectoryItem } from "../types/api";
+import { exportSingleTablePdf } from "../utils/pdf";
 
 type Option = {
   value: string;
@@ -123,9 +125,11 @@ export function ComparisonPage() {
   const [studentOptions, setStudentOptions] = useState<Option[]>([]);
   const [compareOptions, setCompareOptions] = useState<Option[]>([]);
   const [comparison, setComparison] = useState<ComparisonTable | null>(null);
+  const [comparedStudents, setComparedStudents] = useState<Student[]>([]);
 
   const [loadingDirectory, setLoadingDirectory] = useState(false);
   const [loadingCompare, setLoadingCompare] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -188,8 +192,10 @@ export function ComparisonPage() {
           getStudent(semester, department, option.value, batch),
         ),
       );
+      setComparedStudents(students);
       setComparison(buildComparisonTable(students));
     } catch (err) {
+      setComparedStudents([]);
       setComparison(null);
       setError(
         err instanceof Error ? err.message : "Failed to compare students",
@@ -199,11 +205,53 @@ export function ComparisonPage() {
     }
   };
 
+  const onExportComparisonPdf = async () => {
+    if (!comparison || comparedStudents.length < 2) {
+      setError("Generate a comparison before exporting PDF.");
+      return;
+    }
+
+    setExporting(true);
+    setError("");
+    try {
+      const rows = comparison.rows.map((row) => [
+        row.subjectCode,
+        row.subjectName,
+        ...row.points.map((cell) =>
+          cell.diff > 0 ? `${cell.value} (+${cell.diff})` : String(cell.value),
+        ),
+        row.spread > 0 ? `+${row.spread}` : "",
+      ]);
+
+      await exportSingleTablePdf(
+        `comparison-sem-${semester}-${department}.pdf`,
+        {
+          title: "Student Comparison",
+          subtitle: `${department} Semester ${semester} | ${comparedStudents.length} students`,
+          headers: comparison.headers,
+          rows,
+        },
+        comparison.footer,
+        { highlightDiffs: true },
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Comparison export failed.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <section className="grid page-stack">
       <article className="panel">
-        <div className="panel-head">
+        <div className="panel-head panel-head-stack">
           <h2>Compare Students</h2>
+          <p className="hint">
+            Pick multiple students to compare subject-wise grade points and
+            spread in one table.
+          </p>
         </div>
 
         <form onSubmit={onCompareStudents} className="stack">
@@ -225,7 +273,17 @@ export function ComparisonPage() {
             <p className="hint">Select 2 to 12 students for comparison.</p>
           </div>
           <button type="submit" disabled={loadingCompare}>
-            {loadingCompare ? "Comparing..." : "Compare"}
+            {loadingCompare ? "Comparing..." : "Generate Comparison"}
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              void onExportComparisonPdf();
+            }}
+            disabled={exporting || loadingCompare || !comparison}
+          >
+            {exporting ? "Exporting..." : "Export Comparison PDF"}
           </button>
         </form>
 
@@ -233,6 +291,21 @@ export function ComparisonPage() {
 
         {comparison ? (
           <div className="result-block">
+            {comparedStudents.length > 0 ? (
+              <p className="hint">
+                Compared:{" "}
+                {comparedStudents.map((student, index) => (
+                  <span key={student.regno}>
+                    {index > 0 ? " | " : ""}
+                    <StudentNameLink
+                      regno={student.regno}
+                      name={student.name}
+                    />
+                  </span>
+                ))}
+              </p>
+            ) : null}
+
             <div className="table-wrap">
               <table>
                 <thead>
@@ -285,7 +358,12 @@ export function ComparisonPage() {
               </div>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <p className="hint">
+            No comparison generated yet. Select students and click Generate
+            Comparison.
+          </p>
+        )}
       </article>
     </section>
   );

@@ -6,6 +6,7 @@ export type DepartmentOption = {
 export type Meta = {
   departments: DepartmentOption[];
   semesters: number[];
+  batches: string[];
 };
 
 export type Summary = {
@@ -105,6 +106,19 @@ export type ImportResultsResponse = {
     effective_slug: string | null;
   };
   count: number;
+};
+
+export type ImportPreviewPageEntry = {
+  semester: number;
+  batch: string;
+  pages: number[];
+};
+
+export type ImportPreviewResponse = {
+  source: string;
+  semesters: number[];
+  batches_by_semester: Record<string, string[]>;
+  pages_by_semester_batch: ImportPreviewPageEntry[];
 };
 
 export type StorageFolderResponse = {

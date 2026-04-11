@@ -6,6 +6,7 @@ import type {
   DepartmentOption,
   DepartmentSummary,
   ImportResultsResponse,
+  ImportPreviewResponse,
   Meta,
   RankListResponse,
   StorageFolderResponse,
@@ -212,6 +213,27 @@ export const importResultsFile = async (
   }
 
   return payload as ImportResultsResponse;
+};
+
+export const previewResultsFile = async (
+  file: File,
+): Promise<ImportPreviewResponse> => {
+  const formData = new FormData();
+  formData.set("results_file", file);
+
+  const response = await fetch(`${BASE_API}/import-results-preview`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    const detail =
+      typeof payload?.detail === "string" ? payload.detail : "Request failed";
+    throw new Error(detail);
+  }
+
+  return payload as ImportPreviewResponse;
 };
 
 export const downloadSemesterJson = async (

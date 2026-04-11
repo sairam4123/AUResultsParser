@@ -57,6 +57,27 @@ subject_credit_mapping = {
     "CS3361": 2,
     "GE3361": 1,
     "NM1113": 0,  # 2 credits (currently disabled)
+    # Sem 2 subjects
+    "HS3252": 2,
+    "MA3251": 4,
+    "PH3256": 3,
+    "BE3251": 3,
+    "GE3251": 4,
+    "CS3251": 3,
+    "GE3252": 1,
+    "CS3271": 2,
+    "GE3271": 2,
+    "GE3272": 2,
+    # Sem 1 Subjects
+    "MA3151": 4,
+    "PH3151": 3,
+    "CY3151": 3,
+    "GE3151": 3,
+    "GE3152": 1,
+    "GE3171": 2,
+    "BS3171": 2,
+    "GE3172": 1,
+    "HS3152": 3,
 }
 
 subject_sem_mapping = {
@@ -111,6 +132,27 @@ subject_sem_mapping = {
     "CS3361": 3,
     "GE3361": 3,
     "NM1113": 3,  # 2 credits (currently disabled)
+    # Sem 2 subjects
+    "HS3252": 2,
+    "MA3251": 2,
+    "PH3256": 2,
+    "BE3251": 2,
+    "GE3251": 2,
+    "CS3251": 2,
+    "GE3252": 2,
+    "CS3271": 2,
+    "GE3271": 2,
+    "GE3272": 2,
+    # Sem 1 Subjects
+    "MA3151": 1,
+    "PH3151": 1,
+    "CY3151": 1,
+    "GE3151": 1,
+    "HS3152": 1,
+    "GE3152": 1,
+    "GE3171": 1,
+    "BS3171": 1,
+    "GE3172": 1,
 }
 
 subject_name_mapping = {
@@ -163,6 +205,27 @@ subject_name_mapping = {
     "CD3281": "Data Structures and Algorithm Lab",
     "CS3381": "Object Oriented Programming Lab",
     "CS3361": "Data Science Lab",
+    # Sem 2 subjects
+    "HS3252": "Professional English II",
+    "MA3251": "Statistics and Numerical Methods",
+    "PH3256": "Physics for Information Science",
+    "BE3251": "Basic Electrical and Electronics Engineering",
+    "GE3251": "Engineering Graphics",
+    "CS3251": "Programming in C",
+    "GE3252": "Tamils and Technology",
+    "CS3271": "Programming in C Lab",
+    "GE3271": "Engineering Practices Lab",
+    "GE3272": "Communications Lab",
+    # Sem 1 Subjects
+    "MA3151": "Matrices and Calculus",
+    "PH3151": "Engineering Physics I",
+    "CY3151": "Engineering Chemistry I",
+    "GE3151": "Problem Solving and Python Programming",
+    "HS3152": "Professional English I",
+    "GE3152": "Heritage of Tamils",
+    "GE3171": "Problem Solving and Python Programming Lab",
+    "BS3171": "Physics and Chemistry Lab",
+    "GE3172": "English Lab",
 }
 
 
@@ -180,8 +243,8 @@ grade_mapping = {
 
 
 def calculate_sgpa(semester: int, grades: dict, all_subs: bool = False) -> float:
-    if not (2 < semester < 9):
-        raise ValueError("Semester must be between 3 and 8 inclusive.")
+    if not (1 <= semester <= 8):
+        raise ValueError("Semester must be between 1 and 8 inclusive.")
 
     # get subjects from semester_mapping
     subjects = (

@@ -5,6 +5,77 @@ from backend.constants import calculate_sgpa, get_subject_name, grade_mapping
 
 type Result = dict[str, str | dict[str, str]]
 
+COLLEGE_CODE = "8128"
+REGNO_BATCH_REGEX = re.compile(r"\d{4}(\d{2})\d{3}\d{3}")
+SEMESTER_LINE_REGEX = re.compile(
+    r"(Semester|Sem)\s+(No)?\.*\s*:\s*(?P<sem>\d+)",
+    re.IGNORECASE,
+)
+
+
+def scan_result_pdf_structure(file: str) -> dict[str, object]:
+    batches_by_sem: dict[int, set[str]] = {}
+    pages_by_sem_batch: dict[tuple[int, str], set[int]] = {}
+
+    with pdfplumber.open(file) as pdf:
+        current_sem: int | None = None
+
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                for line in text.split("\n"):
+                    match = SEMESTER_LINE_REGEX.search(line)
+                    if match:
+                        current_sem = int(match.group("sem") or "0")
+
+            table = page.extract_table()
+            batches_found: set[str] = set()
+            if table:
+                for row in table:
+                    if not row or len(row) == 0:
+                        continue
+
+                    first_cell = row[0]
+                    if not first_cell:
+                        continue
+
+                    first_cell_text = str(first_cell)
+                    if COLLEGE_CODE not in first_cell_text:
+                        continue
+
+                    batch_match = REGNO_BATCH_REGEX.search(first_cell_text)
+                    if batch_match:
+                        batch_year = f"20{batch_match.group(1)}"
+                        batches_found.add(batch_year)
+
+            if current_sem is not None:
+                semester_batches = batches_by_sem.setdefault(current_sem, set())
+                semester_batches.update(batches_found)
+
+                for batch_year in batches_found:
+                    key = (current_sem, batch_year)
+                    pages_by_sem_batch.setdefault(key, set()).add(page.page_number)
+
+    semesters_found = sorted(batches_by_sem.keys())
+    batches_payload = {
+        str(sem): sorted(list(batch_years))
+        for sem, batch_years in sorted(batches_by_sem.items())
+    }
+    page_links_payload = [
+        {
+            "semester": sem,
+            "batch": batch_year,
+            "pages": sorted(list(page_numbers)),
+        }
+        for (sem, batch_year), page_numbers in sorted(pages_by_sem_batch.items())
+    ]
+
+    return {
+        "semesters": semesters_found,
+        "batches_by_semester": batches_payload,
+        "pages_by_semester_batch": page_links_payload,
+    }
+
 
 def extract_results_from_file(
     recognized_subjects: list[str],

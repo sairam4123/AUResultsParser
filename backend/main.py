@@ -27,6 +27,7 @@ from backend.parser import (
     get_student_results,
     get_subject_wise_summary,
     load_results,
+    scan_result_pdf_structure,
     store_results,
 )
 
@@ -152,7 +153,7 @@ def parse_semesters_query(semesters: str) -> list[int]:
     if not parts:
         raise HTTPException(
             status_code=400,
-            detail="Provide at least one semester, e.g. semesters=3,4,5",
+            detail="Provide at least one semester, e.g. semesters=1,2,3",
         )
 
     parsed: set[int] = set()
@@ -164,10 +165,10 @@ def parse_semesters_query(semesters: str) -> list[int]:
             )
 
         semester = int(value)
-        if not (3 <= semester <= 8):
+        if not (1 <= semester <= 8):
             raise HTTPException(
                 status_code=400,
-                detail=f"Semester {semester} is out of allowed range 3-8.",
+                detail=f"Semester {semester} is out of allowed range 1-8.",
             )
         parsed.add(semester)
 
@@ -218,6 +219,18 @@ def get_results_storage_folder() -> Path:
     return PROJECT_ROOT
 
 
+def get_available_batches() -> list[str]:
+    storage_folder = get_results_storage_folder()
+    batches: set[str] = set()
+
+    for file in storage_folder.glob("*_sem_*_results_*.json"):
+        batch = file.name.split("_", 1)[0]
+        if len(batch) == 4 and batch.isdigit():
+            batches.add(batch)
+
+    return sorted(batches, reverse=True)
+
+
 def set_results_storage_folder(folder: str) -> Path:
     target = Path(folder.strip())
     if not target.is_absolute():
@@ -257,12 +270,13 @@ def root():
 
 @app.get("/api/meta")
 def meta():
-    semesters = sorted({sem for sem in subject_sem_mapping.values() if sem >= 3})
+    semesters = sorted({sem for sem in subject_sem_mapping.values() if sem >= 1})
     return {
         "departments": [
             {"name": name, "code": code} for name, code in dept_codes.items()
         ],
         "semesters": semesters,
+        "batches": get_available_batches(),
     }
 
 
@@ -699,6 +713,35 @@ async def import_results_file(
             "effective_slug": effective_slug,
         },
         "count": len(results),
+    }
+
+
+@app.post("/api/import-results-preview")
+async def import_results_preview(results_file: UploadFile = File(...)):
+    if not results_file.filename:
+        raise HTTPException(status_code=400, detail="Missing uploaded file name.")
+
+    if not results_file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    uploaded_content = await results_file.read()
+    if not uploaded_content:
+        raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(uploaded_content)
+            temp_path = Path(tmp_file.name)
+
+        preview_payload = scan_result_pdf_structure(str(temp_path))
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
+
+    return {
+        "source": results_file.filename,
+        **preview_payload,
     }
 
 

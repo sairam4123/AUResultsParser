@@ -1,13 +1,25 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import Select, { type SingleValue } from "react-select";
 import { useOutletContext } from "react-router-dom";
 import { getCgpaBreakdown, getCgpaClass, getCgpaCompare } from "../api/client";
+import { StudentNameLink } from "../components/StudentNameLink";
 import type { LayoutOutletContext } from "../layout/layoutContext";
 import type {
   CgpaBreakdownResponse,
   CgpaClassResponse,
   CgpaCompareResponse,
 } from "../types/api";
+
+type SortOption = {
+  value: "cgpa" | "arrears" | "regno";
+  label: string;
+};
+
+type SubjectDetailOption = {
+  value: "yes" | "no";
+  label: string;
+};
 
 const formatMaybe = (value: number | null, suffix = "") => {
   if (value === null) {
@@ -19,6 +31,8 @@ const formatMaybe = (value: number | null, suffix = "") => {
 export function CgpaPage() {
   const { department, semester, batch } =
     useOutletContext<LayoutOutletContext>();
+  const menuPortalTarget =
+    typeof window !== "undefined" ? document.body : undefined;
   const [semestersInput, setSemestersInput] = useState("3,4,5");
 
   const [sortBy, setSortBy] = useState<"cgpa" | "arrears" | "regno">("cgpa");
@@ -43,6 +57,56 @@ export function CgpaPage() {
   );
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareError, setCompareError] = useState("");
+
+  const sortOptions: SortOption[] = [
+    { value: "cgpa", label: "CGPA" },
+    { value: "arrears", label: "Arrears" },
+    { value: "regno", label: "Reg No" },
+  ];
+
+  const selectedSortOption =
+    sortOptions.find((option) => option.value === sortBy) ?? sortOptions[0];
+
+  const subjectDetailOptions: SubjectDetailOption[] = [
+    { value: "no", label: "Summary only" },
+    { value: "yes", label: "Include details" },
+  ];
+
+  const selectedSubjectDetailOption = subjectDetails
+    ? subjectDetailOptions[1]
+    : subjectDetailOptions[0];
+
+  const rankByRegno = new Map<string, number | null>();
+  if (classData) {
+    const rankedRows = [...classData.rows].sort((left, right) => {
+      const leftCgpa = left.cgpa ?? -1;
+      const rightCgpa = right.cgpa ?? -1;
+      if (rightCgpa !== leftCgpa) {
+        return rightCgpa - leftCgpa;
+      }
+      return left.regno.localeCompare(right.regno);
+    });
+
+    let previousCgpa: number | null = null;
+    let previousRank = 0;
+
+    rankedRows.forEach((row, index) => {
+      if (row.cgpa === null) {
+        rankByRegno.set(row.regno, null);
+        return;
+      }
+
+      if (previousCgpa !== null && row.cgpa === previousCgpa) {
+        rankByRegno.set(row.regno, previousRank);
+        return;
+      }
+
+      const nextRank = index + 1;
+      previousCgpa = row.cgpa;
+      previousRank = nextRank;
+      rankByRegno.set(row.regno, nextRank);
+    });
+  }
 
   const onUseCurrentSemester = () => {
     setSemestersInput(String(semester));
@@ -141,8 +205,12 @@ export function CgpaPage() {
   return (
     <section className="grid page-stack">
       <article className="panel">
-        <div className="panel-head">
+        <div className="panel-head panel-head-stack">
           <h2>CGPA Across Semesters</h2>
+          <p className="hint">
+            Define the semester set once, then use it for class view, student
+            breakdown, and comparison.
+          </p>
         </div>
         <div className="grid-two">
           <div className="input-wrap">
@@ -171,28 +239,36 @@ export function CgpaPage() {
       </article>
 
       <article className="panel">
-        <div className="panel-head">
+        <div className="panel-head panel-head-stack">
           <h2>Class CGPA Table</h2>
+          <p className="hint">
+            Load a class-wide table and optionally narrow by RegNo prefix.
+          </p>
         </div>
 
         <form onSubmit={onLoadClass} className="inline-form">
           <div className="input-wrap compact">
             <label htmlFor="cgpaSort">Sort</label>
-            <select
-              id="cgpaSort"
-              value={sortBy}
-              onChange={(event) =>
-                setSortBy(event.target.value as "cgpa" | "arrears" | "regno")
-              }
-            >
-              <option value="cgpa">CGPA</option>
-              <option value="arrears">Arrears</option>
-              <option value="regno">RegNo</option>
-            </select>
+            <Select<SortOption>
+              inputId="cgpaSort"
+              options={sortOptions}
+              value={selectedSortOption}
+              onChange={(option: SingleValue<SortOption>) => {
+                if (option) {
+                  setSortBy(option.value);
+                }
+              }}
+              isSearchable={false}
+              menuPlacement="auto"
+              menuPosition="fixed"
+              menuPortalTarget={menuPortalTarget}
+              className="rs-single"
+              classNamePrefix="rs"
+            />
           </div>
 
           <div className="input-wrap compact">
-            <label htmlFor="cgpaTop">Top N</label>
+            <label htmlFor="cgpaTop">Record Limit</label>
             <input
               id="cgpaTop"
               type="number"
@@ -213,7 +289,7 @@ export function CgpaPage() {
           </div>
 
           <button type="submit" disabled={classLoading}>
-            {classLoading ? "Loading..." : "Load Class Table"}
+            {classLoading ? "Loading..." : "Load Class CGPA Table"}
           </button>
         </form>
 
@@ -235,6 +311,7 @@ export function CgpaPage() {
                   <tr>
                     <th>Reg No</th>
                     <th>Name</th>
+                    <th>Rank</th>
                     {classData.semesters.map((value) => (
                       <th key={`sem-${value}`}>S{value} SGPA</th>
                     ))}
@@ -247,7 +324,10 @@ export function CgpaPage() {
                   {classData.rows.map((row) => (
                     <tr key={row.regno}>
                       <td>{row.regno}</td>
-                      <td>{row.name}</td>
+                      <td>
+                        <StudentNameLink regno={row.regno} name={row.name} />
+                      </td>
+                      <td>{rankByRegno.get(row.regno) ?? "N/A"}</td>
                       {classData.semesters.map((value) => {
                         const key = String(value);
                         return (
@@ -263,7 +343,7 @@ export function CgpaPage() {
                   ))}
                   {classData.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={6 + classData.semesters.length}>
+                      <td colSpan={7 + classData.semesters.length}>
                         No students found for this filter.
                       </td>
                     </tr>
@@ -276,8 +356,11 @@ export function CgpaPage() {
       </article>
 
       <article className="panel">
-        <div className="panel-head">
+        <div className="panel-head panel-head-stack">
           <h2>Single Student CGPA Breakdown</h2>
+          <p className="hint">
+            Enter a registration number to inspect semester-wise CGPA math.
+          </p>
         </div>
 
         <form onSubmit={onLoadBreakdown} className="inline-form">
@@ -291,7 +374,7 @@ export function CgpaPage() {
             />
           </div>
           <button type="submit" disabled={breakdownLoading}>
-            {breakdownLoading ? "Loading..." : "Get Breakdown"}
+            {breakdownLoading ? "Loading..." : "Load Student Breakdown"}
           </button>
         </form>
 
@@ -302,7 +385,13 @@ export function CgpaPage() {
         {breakdownData ? (
           <div className="result-block">
             <p>
-              <strong>{breakdownData.name}</strong> ({breakdownData.regno})
+              <strong>
+                <StudentNameLink
+                  regno={breakdownData.regno}
+                  name={breakdownData.name}
+                />
+              </strong>{" "}
+              ({breakdownData.regno})
             </p>
             {breakdownData.semesters.map((semesterData) => (
               <div
@@ -358,8 +447,12 @@ export function CgpaPage() {
       </article>
 
       <article className="panel">
-        <div className="panel-head">
+        <div className="panel-head panel-head-stack">
           <h2>Compare Two Students (CGPA Breakdown)</h2>
+          <p className="hint">
+            Compare two students on CGPA, arrears, credits, and subject-level
+            impact.
+          </p>
         </div>
 
         <form onSubmit={onLoadCompare} className="inline-form">
@@ -385,20 +478,24 @@ export function CgpaPage() {
 
           <div className="input-wrap compact">
             <label htmlFor="cgpaSubjectDetails">Subject Detail</label>
-            <select
-              id="cgpaSubjectDetails"
-              value={subjectDetails ? "yes" : "no"}
-              onChange={(event) =>
-                setSubjectDetails(event.target.value === "yes")
-              }
-            >
-              <option value="no">Summary only</option>
-              <option value="yes">Include details</option>
-            </select>
+            <Select<SubjectDetailOption>
+              inputId="cgpaSubjectDetails"
+              options={subjectDetailOptions}
+              value={selectedSubjectDetailOption}
+              onChange={(option: SingleValue<SubjectDetailOption>) => {
+                setSubjectDetails(option?.value === "yes");
+              }}
+              isSearchable={false}
+              menuPlacement="auto"
+              menuPosition="fixed"
+              menuPortalTarget={menuPortalTarget}
+              className="rs-single"
+              classNamePrefix="rs"
+            />
           </div>
 
           <button type="submit" disabled={compareLoading}>
-            {compareLoading ? "Loading..." : "Compare"}
+            {compareLoading ? "Loading..." : "Compare CGPA Profiles"}
           </button>
         </form>
 
@@ -407,10 +504,20 @@ export function CgpaPage() {
         {compareData ? (
           <div className="result-block">
             <p>
-              <strong>{compareData.student1.name}</strong> (
-              {compareData.student1.regno}) vs{" "}
-              <strong>{compareData.student2.name}</strong> (
-              {compareData.student2.regno})
+              <strong>
+                <StudentNameLink
+                  regno={compareData.student1.regno}
+                  name={compareData.student1.name}
+                />
+              </strong>{" "}
+              ({compareData.student1.regno}) vs{" "}
+              <strong>
+                <StudentNameLink
+                  regno={compareData.student2.regno}
+                  name={compareData.student2.name}
+                />
+              </strong>{" "}
+              ({compareData.student2.regno})
             </p>
 
             <div className="table-wrap">

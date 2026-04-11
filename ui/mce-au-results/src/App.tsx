@@ -9,12 +9,17 @@ import { ExportsPage } from "./pages/ExportsPage";
 import { ImportsPage } from "./pages/ImportsPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { RankingsPage } from "./pages/RankingsPage";
+import { StudentProfilePage } from "./pages/StudentProfilePage";
 import { StudentsPage } from "./pages/StudentsPage";
 import type { Meta } from "./types/api";
 import "./App.css";
 
 function App() {
-  const [meta, setMeta] = useState<Meta>({ departments: [], semesters: [] });
+  const [meta, setMeta] = useState<Meta>({
+    departments: [],
+    semesters: [],
+    batches: [],
+  });
   const [department, setDepartment] = useState("IT");
   const [semester, setSemester] = useState(5);
   const [batch, setBatch] = useState("");
@@ -87,6 +92,7 @@ function App() {
               department={department}
               semester={semester}
               batch={batch}
+              availableBatches={meta.batches}
               onDepartmentChange={setDepartment}
               onSemesterChange={setSemester}
               onBatchChange={setBatch}
@@ -98,6 +104,7 @@ function App() {
           <Route path="/" element={<OverviewPage />} />
           <Route path="/arrears" element={<ArrearsPage />} />
           <Route path="/students" element={<StudentsPage />} />
+          <Route path="/student/:regno" element={<StudentProfilePage />} />
           <Route path="/cgpa" element={<CgpaPage />} />
           <Route path="/comparison" element={<ComparisonPage />} />
           <Route path="/rankings" element={<RankingsPage />} />
