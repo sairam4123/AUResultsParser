@@ -163,6 +163,7 @@ def build_class_cgpa_payload(
             key=lambda item: (
                 item.cgpa is None,
                 -(item.cgpa if item.cgpa is not None else -1),
+                item.total_arrears,
                 item.regno,
             )
         )

@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "pdf_path": "../205_ND2025.pdf",
+    "exam_name": "ND2025",
+    "result_date": "2025-12-20",
+    "state": "PROVISIONAL",
+    "strict_grades": false
+  },
+  "jobs": [
+    {
+      "name": "it_sem5_full_batch2023",
+      "mode": "full",
+      "semester": 5,
+      "department": "IT",
+      "batch": "2023",
+      "sem_name": "23-ODD"
+    },
+    {
+      "name": "it_sem5_partial_reval_selected_students",
+      "mode": "partial",
+      "semester": 5,
+      "department": "IT",
+      "batch": "2023",
+      "sem_name": "23-ODD",
+      "state": "REVAL",
+      "include_regnos": ["812823205001", "812823205002"],
+      "include_subject_codes": ["CS3591", "IT3501"]
+    }
+  ]
+}

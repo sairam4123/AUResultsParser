@@ -9,3 +9,8 @@ dependencies = [
     "pdfplumber>=0.11.9",
     "tabulate>=0.10.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

@@ -95,19 +95,29 @@ def extract_results_from_file(
         dept_pattern = re.compile(rf"^8128\d{{2}}{department_code}\d{{3}}$")
         dept_page_pattern = re.compile(rf"8128\d{{2}}{department_code}\d{{3}}")
 
-    results = []
-    table = []
+    known_subjects = {subject.strip().upper() for subject in recognized_subjects}
+    results_by_regno: dict[str, Result] = {}
+    active_subject_indices: dict[str, int] | None = None
 
     with pdfplumber.open(file) as pdf:
         pages: list[int] = []
         sem_page_found = False
         for i, page in enumerate(pdf.pages):
-            text = page.extract_text()
+            text = page.extract_text() or ""
+            semester_match = SEMESTER_LINE_REGEX.search(text)
+            page_semester = (
+                int(semester_match.group("sem") or "0")
+                if semester_match
+                else None
+            )
 
-            if text and ("Semester No. : " + f"{semester:02d}") in text:
-                sem_page_found = True
-                pages.append(i)
-            elif text and sem_page_found:
+            if page_semester is not None:
+                sem_page_found = page_semester == semester
+                if sem_page_found:
+                    pages.append(i)
+                continue
+
+            if text and sem_page_found:
                 if normalized_slug and normalized_slug in text:
                     pages.append(i)
                 elif dept_page_pattern and dept_page_pattern.search(text):
@@ -117,47 +127,95 @@ def extract_results_from_file(
 
         for page_num in pages:
             page = pdf.pages[page_num]
-            text = page.extract_table()
-            if not text:
+            table = page.extract_table()
+            if not table:
                 continue
-            table.extend(text)
-        if not table:
+
+            header_index: int | None = None
+            detected_subject_indices: dict[str, int] | None = None
+
+            # Some PDFs have multi-row headers; continuation pages may omit headers.
+            header_scan_limit = min(4, len(table))
+            for idx in range(header_scan_limit):
+                header = [
+                    str(cell).strip().replace("\n", "") if cell else ""
+                    for cell in table[idx]
+                ]
+                subject_indices = {
+                    str(subject_code).strip().upper(): index
+                    for index, subject_code in enumerate(header)
+                    if str(subject_code).strip().upper() in known_subjects
+                }
+                if subject_indices:
+                    header_index = idx
+                    detected_subject_indices = subject_indices
+                    break
+
+            if detected_subject_indices is not None:
+                active_subject_indices = detected_subject_indices
+                data_rows = table[(header_index + 1) if header_index is not None else 1 :]
+            elif active_subject_indices is not None:
+                data_rows = table
+            else:
+                continue
+
+            for row in data_rows:
+                regno = str(row[0]).strip() if row and row[0] else ""
+                if not regno or not regno.isdigit() or len(regno) < 8:
+                    continue
+
+                include_row = False
+                if normalized_slug and regno.startswith(normalized_slug):
+                    include_row = True
+                elif dept_pattern and dept_pattern.match(regno):
+                    include_row = True
+
+                if not include_row:
+                    continue
+
+                existing = results_by_regno.get(regno)
+                if existing is None:
+                    existing = {
+                        "regno": regno,
+                        "name": str(row[1]).strip()
+                        if len(row) > 1 and row[1]
+                        else "N/A",
+                        "subjects": {},
+                    }
+                    results_by_regno[regno] = existing
+                elif (
+                    (not existing.get("name") or str(existing.get("name")) == "N/A")
+                    and len(row) > 1
+                    and row[1]
+                ):
+                    existing["name"] = str(row[1]).strip()
+
+                subjects = existing.get("subjects")
+                if not isinstance(subjects, dict):
+                    subjects = {}
+                    existing["subjects"] = subjects
+
+                for subject, idx in active_subject_indices.items():
+                    grade = (
+                        str(row[idx]).strip().upper()
+                        if idx < len(row) and row[idx]
+                        else "NA"
+                    )
+                    # Duplicate subject entries within one ingest are resolved by recency.
+                    subjects[subject] = grade
+
+        if not results_by_regno:
             print("No semester table found in the document.")
             return
 
-        header = table[0]
-        header = [str(h).strip().replace("\n", "") for h in header]
-        subject_indices = {
-            subj: header.index(subj) for subj in recognized_subjects if subj in header
-        }
-
-        for row in table:
-            regno = str(row[0]) if row and row[0] else ""
-            if not regno:
-                continue
-
-            include_row = False
-            if normalized_slug and regno.startswith(normalized_slug):
-                include_row = True
-            elif dept_pattern and dept_pattern.match(regno):
-                include_row = True
-
-            if not include_row:
-                continue
-
-            result_row = {
-                "regno": regno,
-                "name": row[1] if len(row) > 1 else "N/A",
-                "subjects": {},
-            }
-            for subject, idx in subject_indices.items():
-                result_row["subjects"][subject] = (
-                    row[idx] if idx < len(row) and row[idx] else "NA"
-                )
-            if all(grade == "NA" for grade in result_row["subjects"].values()):
-                print(
-                    f"Skipping {regno} as all grades are NA: {result_row['subjects']}"
-                )
+        results: list[Result] = []
+        for regno in sorted(results_by_regno):
+            result_row = results_by_regno[regno]
+            subjects = result_row.get("subjects")
+            if isinstance(subjects, dict) and all(
+                str(grade).upper() == "NA" for grade in subjects.values()
+            ):
+                print(f"Skipping {regno} as all grades are NA: {subjects}")
                 continue
             results.append(result_row)
 

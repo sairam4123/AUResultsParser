@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f3f5ff;
+  --foreground: #0f1a56;
+  --muted: #364185;
+  --card: rgba(255, 255, 255, 0.94);
+  --panel-border: #c6ceef;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ── Base ─────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #b0bce8 #edf0ff;
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #edf0ff;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #b0bce8;
+  border-radius: 999px;
+  border: 2px solid #edf0ff;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 10% 8%, rgba(48, 64, 160, 0.18), transparent 34%),
+    radial-gradient(circle at 92% 12%, rgba(255, 240, 176, 0.32), transparent 31%),
+    linear-gradient(180deg, #f7f8ff 0%, #edf1ff 100%),
+    var(--background);
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+  background-size: 100% 100%, 100% 100%, 100% 100%, auto;
+  background-attachment: fixed, fixed, fixed, fixed;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), "Space Grotesk", sans-serif;
+}
+
+/* ── react-select ─────────────────────────── */
+
+.rs__control {
+  min-height: 40px !important;
+  border-color: #7f8dd6 !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  background: white !important;
+  font-size: 0.91rem !important;
+  cursor: pointer !important;
+  transition: border-color 150ms ease !important;
+}
+
+.rs__control--is-focused {
+  border-color: #3040a0 !important;
+  box-shadow: 0 0 0 3px rgba(48, 64, 160, 0.12) !important;
+}
+
+.rs__control--is-disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  background: #f5f5f5 !important;
+}
+
+.rs__menu {
+  z-index: 9999 !important;
+  border-radius: 10px !important;
+  border: 1px solid #c6ceef !important;
+  box-shadow: 0 8px 24px rgba(22, 50, 99, 0.12) !important;
+  overflow: hidden;
+}
+
+.rs__menu-list {
+  padding: 4px !important;
+}
+
+.rs__option {
+  border-radius: 7px !important;
+  font-size: 0.88rem !important;
+  padding: 7px 10px !important;
+  cursor: pointer !important;
+}
+
+.rs__option--is-focused {
+  background-color: #eef1ff !important;
+  color: var(--foreground) !important;
+}
+
+.rs__option--is-selected {
+  background-color: #3040a0 !important;
+  color: white !important;
+}
+
+.rs__single-value {
+  color: var(--foreground) !important;
+}
+
+.rs__placeholder {
+  color: #9ca3af !important;
+  font-size: 0.91rem !important;
+}
+
+.rs__indicator-separator {
+  display: none !important;
+}
+
+.rs__dropdown-indicator {
+  color: #7f8dd6 !important;
+  padding: 6px 8px !important;
+}
+
+.rs__dropdown-indicator:hover {
+  color: #3040a0 !important;
+}
+
+.rs__value-container {
+  padding: 0 10px !important;
+}
+
+.rs__multi-value {
+  background-color: #eef1ff !important;
+  border-radius: 6px !important;
+}
+
+.rs__multi-value__label {
+  color: var(--foreground) !important;
+  font-size: 0.84rem !important;
+}
+
+.rs__multi-value__remove:hover {
+  background-color: #d0d9ff !important;
+  color: #3040a0 !important;
+}
+
+.rs__clear-indicator {
+  color: #7f8dd6 !important;
+}
+
+.rs__clear-indicator:hover {
+  color: #b91c1c !important;
+}

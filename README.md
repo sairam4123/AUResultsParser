@@ -66,6 +66,17 @@ Run the interactive CLI to analyze results:
 python main.py
 ```
 
+Run the SQLite-backed interactive explorer from project root:
+
+```bash
+python sqlite_explorer_cli.py
+```
+
+The SQLite explorer reads data from:
+- AU_RESULTS_DB_PATH (if set)
+- results.sqlite
+- results.sqlite3 (legacy fallback)
+
 The interactive mode will prompt you to:
 
 1. Select a department (IT or AIML)

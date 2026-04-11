@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import tempfile
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -18,6 +19,7 @@ from backend.cgpa import (
     build_compare_breakdown_payload,
     build_student_breakdown_payload,
 )
+from backend.db import SQLiteResultRepository
 from backend.parser import (
     compare_results_students,
     extract_results_from_file,
@@ -33,10 +35,44 @@ from backend.parser import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STORAGE_CONFIG_FILE = PROJECT_ROOT / ".auresults_storage.json"
+DEFAULT_SQLITE_NAME = "results.sqlite"
+LEGACY_SQLITE_NAME = "results.sqlite3"
+
+_sqlite_repo: SQLiteResultRepository | None = None
+_sqlite_repo_path: Path | None = None
 
 
 class StorageFolderPayload(BaseModel):
     folder: str
+
+
+def resolve_sqlite_db_path() -> Path:
+    env_override = os.getenv("AU_RESULTS_DB_PATH", "").strip()
+    if env_override:
+        return Path(env_override)
+
+    preferred = PROJECT_ROOT / DEFAULT_SQLITE_NAME
+    legacy = PROJECT_ROOT / LEGACY_SQLITE_NAME
+
+    if preferred.exists():
+        return preferred
+    if legacy.exists():
+        return legacy
+
+    return preferred
+
+
+def get_sqlite_repository() -> tuple[SQLiteResultRepository, Path]:
+    global _sqlite_repo, _sqlite_repo_path
+
+    db_path = resolve_sqlite_db_path()
+    if _sqlite_repo is None or _sqlite_repo_path != db_path:
+        repository = SQLiteResultRepository(db_path)
+        repository.initialize_schema()
+        _sqlite_repo = repository
+        _sqlite_repo_path = db_path
+
+    return _sqlite_repo, db_path
 
 
 app = FastAPI(
@@ -199,6 +235,62 @@ def load_multiple_semester_results(
 
         results_by_semester[semester] = load_results(str(result_file))
         sources[semester] = result_file.name
+
+    return results_by_semester, dept_code, sources
+
+
+def load_semester_results_v2(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+) -> tuple[list[dict], int, str]:
+    _department_name, dept_code = resolve_department(department)
+    repository, db_path = get_sqlite_repository()
+
+    normalized_batch = normalize_batch_for_filename(batch) if batch else None
+    rows, resolved_batch, resolved_sem_name = (
+        repository.load_semester_effective_results(
+            semester_no=semester,
+            department_code=dept_code,
+            batch=normalized_batch,
+            sem_name=None,
+        )
+    )
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "SQLite results not found for semester "
+                f"{semester}, department {department}"
+                + (f", batch {batch}." if batch else ".")
+            ),
+        )
+
+    sem_label = resolved_sem_name or "ALL"
+    source = f"sqlite:{db_path.name};batch={resolved_batch};sem_name={sem_label}"
+    return rows, dept_code, source
+
+
+def load_multiple_semester_results_v2(
+    semesters: list[int],
+    department: str,
+    batch: str | None,
+) -> tuple[dict[int, list[dict]], int, dict[int, str]]:
+    _department_name, dept_code = resolve_department(department)
+    repository, _db_path = get_sqlite_repository()
+    normalized_batch = normalize_batch_for_filename(batch) if batch else None
+
+    try:
+        results_by_semester, sources = (
+            repository.load_multiple_semester_effective_results(
+                semesters=semesters,
+                department_code=dept_code,
+                batch=normalized_batch,
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return results_by_semester, dept_code, sources
 
@@ -758,3 +850,587 @@ def export_semester_json(semester: int, department: str, batch: str | None = Non
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/v2/meta")
+def meta_v2():
+    repository, db_path = get_sqlite_repository()
+    active_department_codes = set(repository.get_available_department_codes())
+    departments = [
+        {"name": name, "code": code}
+        for name, code in dept_codes.items()
+        if not active_department_codes or code in active_department_codes
+    ]
+
+    return {
+        "source_of_truth": "sqlite",
+        "db_path": str(db_path),
+        "departments": departments,
+        "semesters": repository.get_available_semesters(),
+        "batches": repository.get_available_batches(),
+    }
+
+
+@app.get("/api/v2/summary")
+def semester_summary_v2(semester: int, department: str, batch: str | None = None):
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+    summary = get_sem_result_summary(results)
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "summary": summary,
+    }
+
+
+@app.get("/api/v2/student")
+def student_result_v2(
+    semester: int,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+    student = get_student_results(regno.strip(), results)
+    if not student:
+        raise HTTPException(
+            status_code=404, detail="Student not found for selected semester."
+        )
+
+    subjects = student.get("subjects", {})
+    if not isinstance(subjects, dict):
+        raise HTTPException(
+            status_code=500, detail="Malformed subject data for student."
+        )
+
+    formatted_subjects = [
+        {
+            "code": code,
+            "name": get_subject_name(code),
+            "grade": grade,
+            "status": "Pass" if grade not in ["U", "UA"] else "Fail",
+        }
+        for code, grade in subjects.items()
+    ]
+
+    sgpa = calculate_sgpa(semester, subjects)
+    arrears = sum(grade == "U" for grade in subjects.values())
+
+    rank_items = generate_rank_list(results, semester, top_k=max(1, len(results)))
+    student_regno = student.get("regno")
+    rank = next(
+        (
+            item_rank
+            for item_rank, item_regno, _item_name, _item_sgpa in rank_items
+            if item_regno == student_regno
+        ),
+        None,
+    )
+
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "student": {
+            "regno": student.get("regno"),
+            "name": student.get("name", "N/A"),
+            "sgpa": round(sgpa, 2),
+            "rank": rank,
+            "arrears": arrears,
+            "subjects": formatted_subjects,
+        },
+    }
+
+
+@app.get("/api/v2/student-audit")
+def student_audit_v2(
+    semester: int,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    _department_name, dept_code = resolve_department(department)
+    repository, db_path = get_sqlite_repository()
+
+    normalized_batch = normalize_batch_for_filename(batch) if batch else None
+    selected_batch = normalized_batch or repository.resolve_latest_batch(
+        semester_no=semester,
+        department_code=dept_code,
+    )
+    if not selected_batch:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "SQLite audit data not found for semester "
+                f"{semester}, department {department}"
+                + (f", batch {batch}." if batch else ".")
+            ),
+        )
+
+    events = repository.get_student_audit_for_semester(
+        regno=regno.strip(),
+        sem_no=semester,
+        department_code=dept_code,
+        batch=selected_batch,
+    )
+    if not events:
+        raise HTTPException(
+            status_code=404,
+            detail="No audit events found for selected student.",
+        )
+
+    effective_map = repository.get_effective_grade_map_for_semester(
+        regno=regno.strip(),
+        sem_no=semester,
+        department_code=dept_code,
+        batch=selected_batch,
+    )
+
+    source = f"sqlite:{db_path.name};batch={selected_batch};sem_name=ALL"
+
+    student_name = events[0].get("studentName", "N/A") if events else "N/A"
+    sgpa = calculate_sgpa(semester, effective_map)
+
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "batch": selected_batch,
+        "source": source,
+        "regno": regno.strip(),
+        "name": student_name,
+        "sgpa": round(sgpa, 2) if sgpa else None,
+        "effective_subjects": [
+            {
+                "code": code,
+                "name": get_subject_name(code),
+                "grade": grade,
+                "status": "Pass" if grade not in ["U", "UA"] else "Fail",
+            }
+            for code, grade in sorted(effective_map.items())
+        ],
+        "events": [
+            {
+                "exam_id": item["exam_id"],
+                "exam_name": item["exam_name"],
+                "result_date": item["result_date"],
+                "subject_code": item["subjectCode"],
+                "subject_name": get_subject_name(str(item["subjectCode"])),
+                "sem_name": item["semName"],
+                "state": item["state"],
+                "grade": item["grade"],
+                "recency_rank": item["recency_rank"],
+            }
+            for item in events
+        ],
+    }
+
+
+@app.get("/api/v2/students")
+def students_directory_v2(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    q: str | None = Query(default=None, description="Search by regno or name"),
+    limit: int = Query(default=2000, ge=1, le=5000),
+):
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+
+    query = q.strip().lower() if q else ""
+    items: list[dict[str, str]] = []
+
+    for result in results:
+        regno = result.get("regno")
+        name = result.get("name")
+        if not isinstance(regno, str):
+            continue
+
+        safe_name = name if isinstance(name, str) else "N/A"
+        haystack = f"{regno} {safe_name}".lower()
+        if query and query not in haystack:
+            continue
+
+        items.append(
+            {
+                "regno": regno,
+                "name": safe_name,
+            }
+        )
+
+    items.sort(key=lambda item: item["regno"])
+    limited_items = items[:limit]
+
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "count": len(limited_items),
+        "items": limited_items,
+    }
+
+
+@app.get("/api/v2/rank-list")
+def rank_list_v2(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    top_k: int = Query(default=10, ge=1, le=200),
+):
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+    ranks = generate_rank_list(results, semester, top_k=top_k)
+    payload = [
+        {
+            "rank": rank,
+            "regno": regno,
+            "name": name,
+            "sgpa": sgpa,
+        }
+        for rank, regno, name, sgpa in ranks
+    ]
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "count": len(payload),
+        "items": payload,
+    }
+
+
+@app.get("/api/v2/compare")
+def compare_students_v2(
+    semester: int,
+    department: str,
+    regno1: str,
+    regno2: str,
+    batch: str | None = None,
+):
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+    comparison = compare_results_students(
+        regno1.strip(), regno2.strip(), results, semester
+    )
+    if not comparison:
+        raise HTTPException(status_code=404, detail="Unable to compare students.")
+
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "comparison": comparison,
+    }
+
+
+@app.get("/api/v2/cgpa/class")
+def cgpa_class_v2(
+    semesters: str,
+    department: str,
+    batch: str | None = None,
+    regno: str | None = None,
+    sort_by: str = Query(default="cgpa", pattern="^(cgpa|arrears|regno)$"),
+    top: int | None = Query(default=None, ge=1, le=5000),
+):
+    semester_list = parse_semesters_query(semesters)
+    results_by_semester, dept_code, sources = load_multiple_semester_results_v2(
+        semester_list,
+        department,
+        batch,
+    )
+
+    payload = build_class_cgpa_payload(
+        results_by_semester,
+        semester_list,
+        regno_filter=regno.strip() if regno else None,
+        sort_by=sort_by,
+        top=top,
+    )
+
+    return {
+        "department_code": dept_code,
+        "semesters": semester_list,
+        "sources": {str(key): value for key, value in sources.items()},
+        **payload,
+    }
+
+
+@app.get("/api/v2/cgpa/breakdown")
+def cgpa_breakdown_v2(
+    semesters: str,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    semester_list = parse_semesters_query(semesters)
+    results_by_semester, dept_code, sources = load_multiple_semester_results_v2(
+        semester_list,
+        department,
+        batch,
+    )
+
+    payload = build_student_breakdown_payload(results_by_semester, regno.strip())
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found in selected semesters.",
+        )
+
+    return {
+        "department_code": dept_code,
+        "requested_semesters": semester_list,
+        "sources": {str(key): value for key, value in sources.items()},
+        **payload,
+    }
+
+
+@app.get("/api/v2/cgpa/compare")
+def cgpa_compare_v2(
+    semesters: str,
+    department: str,
+    regno1: str,
+    regno2: str,
+    batch: str | None = None,
+    subject_details: bool = Query(default=False),
+):
+    semester_list = parse_semesters_query(semesters)
+    results_by_semester, dept_code, sources = load_multiple_semester_results_v2(
+        semester_list,
+        department,
+        batch,
+    )
+
+    payload = build_compare_breakdown_payload(
+        results_by_semester,
+        regno1.strip(),
+        regno2.strip(),
+        subject_details,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="One or both students not found in selected semesters.",
+        )
+
+    return {
+        "department_code": dept_code,
+        "semesters": semester_list,
+        "sources": {str(key): value for key, value in sources.items()},
+        **payload,
+    }
+
+
+@app.get("/api/v2/subject-summary")
+def subject_summary_v2(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    regnos: str | None = Query(default=None, description="Comma separated regnos"),
+):
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+
+    regno_list = None
+    if regnos:
+        regno_list = [item.strip() for item in regnos.split(",") if item.strip()]
+
+    summary, footer = get_subject_wise_summary(results, regno_list)
+    summary_items = [
+        {
+            "code": code,
+            "name": get_subject_name(code),
+            **stats,
+        }
+        for code, stats in summary.items()
+    ]
+
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "subjects": summary_items,
+        "footer": footer,
+    }
+
+
+@app.get("/api/v2/arrears")
+def arrears_summary_v2(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    bucket: str | None = Query(default=None, pattern="^(1|2|3\\+)$"),
+    exact_count: int | None = Query(default=None, ge=0, le=20),
+):
+    if bucket and exact_count is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either bucket or exact_count, not both.",
+        )
+
+    results, dept_code, source = load_semester_results_v2(semester, department, batch)
+    counts, students = get_arrear_students(
+        results,
+        bucket=bucket,
+        exact_count=exact_count,
+    )
+
+    return {
+        "semester": semester,
+        "department_code": dept_code,
+        "source": source,
+        "counts": counts,
+        "filter": {
+            "bucket": bucket,
+            "exact_count": exact_count,
+        },
+        "students": students,
+    }
+
+
+@app.get("/api/v1/meta")
+def meta_v1():
+    return meta()
+
+
+@app.get("/api/v1/storage-folder")
+def get_storage_folder_v1():
+    return get_storage_folder()
+
+
+@app.post("/api/v1/storage-folder")
+def update_storage_folder_v1(payload: StorageFolderPayload):
+    return update_storage_folder(payload)
+
+
+@app.get("/api/v1/summary")
+def semester_summary_v1(semester: int, department: str, batch: str | None = None):
+    return semester_summary(semester, department, batch)
+
+
+@app.get("/api/v1/student")
+def student_result_v1(
+    semester: int,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    return student_result(semester, department, regno, batch)
+
+
+@app.get("/api/v1/students")
+def students_directory_v1(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    q: str | None = Query(default=None, description="Search by regno or name"),
+    limit: int = Query(default=2000, ge=1, le=5000),
+):
+    return students_directory(semester, department, batch, q, limit)
+
+
+@app.get("/api/v1/rank-list")
+def rank_list_v1(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    top_k: int = Query(default=10, ge=1, le=200),
+):
+    return rank_list(semester, department, batch, top_k)
+
+
+@app.get("/api/v1/compare")
+def compare_students_v1(
+    semester: int,
+    department: str,
+    regno1: str,
+    regno2: str,
+    batch: str | None = None,
+):
+    return compare_students(semester, department, regno1, regno2, batch)
+
+
+@app.get("/api/v1/cgpa/class")
+def cgpa_class_v1(
+    semesters: str,
+    department: str,
+    batch: str | None = None,
+    regno: str | None = None,
+    sort_by: str = Query(default="cgpa", pattern="^(cgpa|arrears|regno)$"),
+    top: int | None = Query(default=None, ge=1, le=5000),
+):
+    return cgpa_class(semesters, department, batch, regno, sort_by, top)
+
+
+@app.get("/api/v1/cgpa/breakdown")
+def cgpa_breakdown_v1(
+    semesters: str,
+    department: str,
+    regno: str,
+    batch: str | None = None,
+):
+    return cgpa_breakdown(semesters, department, regno, batch)
+
+
+@app.get("/api/v1/cgpa/compare")
+def cgpa_compare_v1(
+    semesters: str,
+    department: str,
+    regno1: str,
+    regno2: str,
+    batch: str | None = None,
+    subject_details: bool = Query(default=False),
+):
+    return cgpa_compare(
+        semesters,
+        department,
+        regno1,
+        regno2,
+        batch,
+        subject_details,
+    )
+
+
+@app.get("/api/v1/subject-summary")
+def subject_summary_v1(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    regnos: str | None = Query(default=None, description="Comma separated regnos"),
+):
+    return subject_summary(semester, department, batch, regnos)
+
+
+@app.get("/api/v1/arrears")
+def arrears_summary_v1(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+    bucket: str | None = Query(default=None, pattern="^(1|2|3\\+)$"),
+    exact_count: int | None = Query(default=None, ge=0, le=20),
+):
+    return arrears_summary(semester, department, batch, bucket, exact_count)
+
+
+@app.post("/api/v1/import-results")
+async def import_results_file_v1(
+    semester: int = Form(..., ge=3, le=8),
+    department: str = Form(...),
+    regno_slug: str | None = Form(default=None),
+    batch: str | None = Form(default=None),
+    results_file: UploadFile = File(...),
+):
+    return await import_results_file(
+        semester=semester,
+        department=department,
+        regno_slug=regno_slug,
+        batch=batch,
+        results_file=results_file,
+    )
+
+
+@app.post("/api/v1/import-results-preview")
+async def import_results_preview_v1(results_file: UploadFile = File(...)):
+    return await import_results_preview(results_file)
+
+
+@app.get("/api/v1/export-json")
+def export_semester_json_v1(
+    semester: int,
+    department: str,
+    batch: str | None = None,
+):
+    return export_semester_json(semester, department, batch)

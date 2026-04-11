@@ -3,6 +3,24 @@ dept_codes = {
     "IT": 205,
 }
 
+RESULT_STATES = (
+    "PROVISIONAL",
+    "REVAL",
+    "CHALLENGE",
+)
+
+RESULT_GRADES = (
+    "O",
+    "A+",
+    "A",
+    "B+",
+    "B",
+    "C",
+    "U",
+    "UA",
+    "NC",
+)
+
 subject_credit_mapping = {
     # Sem 7 subjects
     "GE3791": 2,
@@ -238,6 +256,7 @@ grade_mapping = {
     "C": 5,
     "U": 0,  # Reappear
     "UA": 0,  # Arrear Absent
+    "NC": 0,  # No Change (audit event, ignored for effective override)
     "NA": 0,  # Not Available
 }
 
