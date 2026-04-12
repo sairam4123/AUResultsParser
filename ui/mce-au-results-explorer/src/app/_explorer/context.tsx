@@ -38,8 +38,7 @@ type ExplorerContextValue = {
   department: string;
   setDepartment: Dispatch<SetStateAction<string>>;
   semester: number;
-  semesters: number[];
-  setSemesters: Dispatch<SetStateAction<number[]>>;
+  setSemester: Dispatch<SetStateAction<number>>;
   batch: string;
   setBatch: Dispatch<SetStateAction<string>>;
   topK: number;
@@ -47,7 +46,6 @@ type ExplorerContextValue = {
   canQuery: boolean;
   summaryCards: SummaryCard[];
   markPanelsLoading: () => void;
-  dataSource: string | null;
 };
 
 const initialDataState = <T,>(loading = false): DataState<T> => ({
@@ -75,11 +73,9 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
   >(initialDataState());
 
   const [department, setDepartment] = useState<string>("");
-  const [semesters, setSemesters] = useState<number[]>([]);
-  const semester = useMemo(() => (semesters.length > 0 ? Math.max(...semesters) : 0), [semesters]);
+  const [semester, setSemester] = useState<number>(0);
   const [batch, setBatch] = useState<string>("");
   const [topK, setTopK] = useState<number>(10);
-  const [dataSource, setDataSource] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -99,7 +95,7 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
 
         if (payload.semesters.length > 0) {
           const latestSemester = payload.semesters[payload.semesters.length - 1];
-          setSemesters([latestSemester]);
+          setSemester(latestSemester);
         }
 
         if (payload.batches.length > 0) {
@@ -217,11 +213,9 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
       .getStudentsDirectory(semester, department, batch || null, { limit: 3000 })
       .then((payload) => {
         setStudentsDirectory({ loading: false, error: null, data: payload.items });
-        setDataSource(payload.source);
       })
       .catch((error: Error) => {
         setStudentsDirectory({ loading: false, error: error.message, data: null });
-        setDataSource(null);
       });
   }, [batch, canQuery, department, semester]);
 
@@ -256,8 +250,7 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     department,
     setDepartment,
     semester,
-    semesters,
-    setSemesters,
+    setSemester,
     batch,
     setBatch,
     topK,
@@ -265,7 +258,6 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     canQuery,
     summaryCards,
     markPanelsLoading,
-    dataSource,
   };
 
   return <ExplorerContext.Provider value={value}>{children}</ExplorerContext.Provider>;

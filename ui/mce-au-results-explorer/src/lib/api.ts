@@ -88,8 +88,6 @@ export type StudentAuditResponse = {
   batch: string;
   source: string;
   regno: string;
-  name: string;
-  sgpa: number | null;
   effective_subjects: {
     code: string;
     name: string;

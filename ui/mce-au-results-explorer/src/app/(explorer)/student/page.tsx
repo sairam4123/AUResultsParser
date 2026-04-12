@@ -1,215 +1,211 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, type FormEvent, useEffect, useMemo, useState } from "react";
+import { Suspense, type FormEvent, useMemo, useState } from "react";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  AreaChart,
-  Area,
-} from "recharts";
-import { api, type CgpaBreakdownResponse, type StudentResponse } from "../../../lib/api";
+  api,
+  type CgpaBreakdownResponse,
+  type StudentAuditResponse,
+  type StudentResponse,
+} from "../../../lib/api";
 import { useExplorer } from "../../_explorer/context";
 import { initialDataState, type DataState } from "../../_explorer/types";
-import { fmtMaybe, fmtNumber, parseSemestersInput } from "../../_explorer/utils";
-import {
-  btnPrimary,
-  btnSecondary,
-  InputField,
-  inputCls,
-  Notice,
-  ResultBlock,
-  ScrollTable,
-  SectionBlock,
-  SectionHead,
-  StatTile,
-  Td,
-  trHover,
-} from "../../_explorer/components";
-import { CHART_COLORS, GRID_STROKE, axisProps, gridProps } from "../../_explorer/chartTheme";
+import { fmtMaybe, fmtNumber } from "../../_explorer/utils";
 
 const gradePointMap: Record<string, number> = {
-  O: 10, "A+": 9, A: 8, "B+": 7, B: 6, C: 5, U: 0, UA: 0, NA: 0, NC: 0,
+  O: 10,
+  "A+": 9,
+  A: 8,
+  "B+": 7,
+  B: 6,
+  C: 5,
+  U: 0,
+  UA: 0,
+  NA: 0,
+  NC: 0,
 };
 
-type TrendPoint = {
-  label: string;
-  sgpa: number | null;
-  cgpa: number | null;
-  arrears: number;
-};
+// ── Shared sub-components ──────────────────────────────────
+
+const THead = ({ cols }: { cols: string[] }) => (
+  <thead className="bg-[#eef2ff]">
+    <tr>
+      {cols.map((col) => (
+        <th
+          key={col}
+          className="px-2.5 py-2 text-left text-[0.74rem] uppercase tracking-[0.04em] font-bold text-[var(--muted)] border-b border-[#dbe3ff]"
+        >
+          {col}
+        </th>
+      ))}
+    </tr>
+  </thead>
+);
+
+const Td = ({ children }: { children: React.ReactNode }) => (
+  <td className="px-2.5 py-2 text-sm border-b border-[#dbe3ff]">{children}</td>
+);
+
+const ScrollTable = ({ cols, children }: { cols: string[]; children: React.ReactNode }) => (
+  <div className="overflow-auto max-h-64 border border-[#dbe3ff] rounded-[10px]">
+    <table className="w-full border-collapse">
+      <THead cols={cols} />
+      <tbody>{children}</tbody>
+    </table>
+  </div>
+);
+
+const ResultBlock = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <div className="border border-[#dbe3ff] rounded-[14px] p-4 bg-[#fffefb] flex flex-col gap-3">
+    <p className="text-[0.95rem] font-bold m-0 text-[var(--foreground)]">{title}</p>
+    {children}
+  </div>
+);
+
+const Notice = ({ error, children }: { error?: boolean; children: React.ReactNode }) => (
+  <p className={`text-sm m-0 ${error ? "text-red-700 font-semibold" : "text-[var(--muted)]"}`}>
+    {children}
+  </p>
+);
+
+// ── Page content ───────────────────────────────────────────
 
 function StudentPageContent() {
-  const { canQuery, semester, semesters, department, batch } = useExplorer();
+  const { canQuery, semester, department, batch, meta } = useExplorer();
   const searchParams = useSearchParams();
-
-  const [regnoInput, setRegnoInput] = useState(
+  const [regnoInput, setRegnoInput] = useState<string>(
     () => searchParams.get("regno")?.trim() ?? "",
   );
   const [student, setStudent] = useState<DataState<StudentResponse>>(initialDataState);
+  const [studentAudit, setStudentAudit] = useState<DataState<StudentAuditResponse>>(
+    initialDataState,
+  );
+  const [cgpaBreakdown, setCgpaBreakdown] = useState<DataState<CgpaBreakdownResponse>>(
+    initialDataState,
+  );
 
-  const [cgpaBreakdown, setCgpaBreakdown] =
-    useState<DataState<CgpaBreakdownResponse>>(initialDataState);
+  const selectedSemesterBreakdown = useMemo(() => {
+    if (!cgpaBreakdown.data) return null;
+    return (
+      cgpaBreakdown.data.semesters.find((item) => item.semester === semester) ??
+      cgpaBreakdown.data.semesters[cgpaBreakdown.data.semesters.length - 1] ??
+      null
+    );
+  }, [cgpaBreakdown.data, semester]);
 
-  const [autoLoaded, setAutoLoaded] = useState(false);
-  useEffect(() => {
-    const regno = searchParams.get("regno")?.trim();
-    if (regno && canQuery && !autoLoaded) {
-      setAutoLoaded(true);
-      void loadStudent(regno);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canQuery]);
-
-  // ── Build SGPA/CGPA trend data from breakdown ────────────────────────────
-
-  const trendData = useMemo<TrendPoint[]>(() => {
-    if (!cgpaBreakdown.data?.semesters.length) return [];
-
-    const sorted = [...cgpaBreakdown.data.semesters].sort((a, b) => a.semester - b.semester);
-    let runCredits = 0;
-    let runGP = 0;
-
-    return sorted.map((s) => {
-      runCredits += s.totals.credits;
-      runGP += s.totals.grade_points;
-      const cgpa = runCredits > 0 ? runGP / runCredits : null;
-      return {
-        label: `Sem ${s.semester}`,
-        sgpa: s.totals.sgpa,
-        cgpa,
-        arrears: s.totals.arrears,
-      };
+  const subjectAuditTrail = useMemo(() => {
+    if (!studentAudit.data) return [];
+    return [...studentAudit.data.events].sort((l, r) => {
+      const diff =
+        new Date(r.result_date).getTime() - new Date(l.result_date).getTime();
+      return diff !== 0 ? diff : l.recency_rank - r.recency_rank;
     });
-  }, [cgpaBreakdown.data]);
+  }, [studentAudit.data]);
 
-  const loadStudent = async (rawRegno: string) => {
+  const lookupStudent = async (rawRegno: string) => {
     if (!canQuery) return;
     const regno = rawRegno.trim();
     if (!regno) {
-      setStudent({ loading: false, error: "Enter a register number.", data: null });
+      setStudent({ loading: false, error: "Enter a register number", data: null });
       return;
     }
-    
     setStudent({ loading: true, error: null, data: null });
+    setStudentAudit({ loading: true, error: null, data: null });
     setCgpaBreakdown({ loading: true, error: null, data: null });
-    
-    try {
-      const studentP = api.getStudent(semester, department, batch || null, regno);
-      const sortedSemesters = [...semesters].sort((a, b) => a - b).join(",");
-      const cgpaP = sortedSemesters.length > 0
-        ? api.getCgpaBreakdown({ semesters: sortedSemesters, department, batch: batch || null, regno })
-        : Promise.resolve(null);
 
-      const [studentData, cgpaData] = await Promise.all([studentP, cgpaP]);
-      
-      setStudent({ loading: false, error: null, data: studentData });
-      
-      if (cgpaData) {
-        setCgpaBreakdown({ loading: false, error: null, data: cgpaData });
-      } else {
-        setCgpaBreakdown({ loading: false, error: "No semesters selected for CGPA calculation.", data: null });
-      }
-    } catch (err) {
-      setStudent({
-        loading: false,
-        error: err instanceof Error ? err.message : "Lookup failed",
-        data: null,
-      });
-      setCgpaBreakdown({
-        loading: false,
-        error: "Failed to load CGPA breakdown",
-        data: null,
-      });
+    const semestersCsv =
+      meta.data?.semesters.length && meta.data.semesters.length > 0
+        ? meta.data.semesters.join(",")
+        : String(semester);
+
+    const [studentResult, auditResult, cgpaResult] = await Promise.allSettled([
+      api.getStudent(semester, department, batch || null, regno),
+      api.getStudentAudit(semester, department, batch || null, regno),
+      api.getCgpaBreakdown({ semesters: semestersCsv, department, batch: batch || null, regno }),
+    ]);
+
+    if (studentResult.status === "fulfilled") {
+      setStudent({ loading: false, error: null, data: studentResult.value });
+    } else {
+      const message =
+        studentResult.reason instanceof Error ? studentResult.reason.message : "Lookup failed";
+      setStudent({ loading: false, error: message, data: null });
+    }
+
+    if (auditResult.status === "fulfilled") {
+      setStudentAudit({ loading: false, error: null, data: auditResult.value });
+    } else {
+      const message =
+        auditResult.reason instanceof Error
+          ? auditResult.reason.message
+          : "Audit lookup failed";
+      setStudentAudit({ loading: false, error: message, data: null });
+    }
+
+    if (cgpaResult.status === "fulfilled") {
+      setCgpaBreakdown({ loading: false, error: null, data: cgpaResult.value });
+    } else {
+      const message =
+        cgpaResult.reason instanceof Error
+          ? cgpaResult.reason.message
+          : "CGPA breakdown lookup failed";
+      setCgpaBreakdown({ loading: false, error: message, data: null });
     }
   };
 
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    void loadStudent(regnoInput);
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    void lookupStudent(regnoInput);
   };
 
   return (
-    <div className="p-4 overflow-auto max-h-[calc(100vh-150px)] flex flex-col gap-4">
-      {/* ── Lookup ────────────────────────────────────────────────────── */}
-      <form className="flex items-end gap-2.5" onSubmit={onSubmit}>
+    <div className="p-4 overflow-auto max-h-[calc(100vh-180px)] flex flex-col gap-4">
+      {/* Lookup form */}
+      <form className="grid grid-cols-[1fr_auto] gap-2.5 items-end" onSubmit={onSubmit}>
         <input
           type="text"
           placeholder="Enter register number"
           value={regnoInput}
           onChange={(e) => setRegnoInput(e.target.value)}
-          className={`${inputCls} flex-1`}
+          className="min-h-[40px] px-3 rounded-[10px] border border-[#7f8dd6] bg-white
+            text-[var(--foreground)] text-[0.91rem] outline-none
+            focus:border-[#3040a0] focus:ring-2 focus:ring-[rgba(48,64,160,0.12)] transition-shadow"
         />
-        <button type="submit" disabled={!canQuery} className={`${btnPrimary} shrink-0`}>
-          Look Up
+        <button
+          type="submit"
+          disabled={!canQuery}
+          className="min-h-[40px] rounded-[10px] border-none
+            bg-gradient-to-br from-[#3040a0] to-[#000060] text-[#edf5ff]
+            font-bold px-4 text-[0.91rem] cursor-pointer whitespace-nowrap
+            transition-all hover:-translate-y-px hover:shadow-[0_6px_16px_rgba(28,52,129,0.26)]
+            disabled:opacity-55 disabled:cursor-not-allowed"
+        >
+          Load Student
         </button>
       </form>
 
       {!canQuery && <Notice>Select department and semester to query student data.</Notice>}
-      {student.loading && <Notice>Loading student profile…</Notice>}
+      {student.loading && <Notice>Loading student profile...</Notice>}
       {student.error && <Notice error>{student.error}</Notice>}
 
       {student.data && (
         <>
-          {/* Profile header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border border-[var(--panel-border)] rounded-[12px] bg-[#f7f9ff] px-5 py-4">
-            <div>
-              <h3 className="m-0 mb-1 text-[1.4rem] font-bold text-[var(--foreground)]">
-                {student.data.student.name}
-              </h3>
-              <p className="m-0 text-[0.95rem] text-[var(--muted)] font-mono">
-                {student.data.student.regno}
-                {student.data.student.sgpa != null && (
-                  <> · Sem {semester} SGPA <strong>{fmtNumber(student.data.student.sgpa)}</strong></>
-                )}
-                {student.data.student.rank != null && (
-                  <> · Rank <strong>{student.data.student.rank}</strong></>
-                )}
-              </p>
-            </div>
-
-            {cgpaBreakdown.loading && (
-              <div className="text-[0.8rem] text-[var(--muted)] animate-pulse">Calculating CGPA...</div>
-            )}
-
-            {cgpaBreakdown.data && (
-              <div className="flex items-center gap-6 text-right shrink-0">
-                <div className="flex flex-col">
-                  <p className="m-0 text-[0.7rem] uppercase tracking-[0.08em] font-bold text-[var(--muted)] mb-1">
-                    Total Arrears
-                  </p>
-                  <p
-                    className={`m-0 text-[2rem] font-extrabold leading-none ${
-                        cgpaBreakdown.data.overall.arrears > 0 ? "text-red-500" : "text-green-500"
-                    }`}
-                  >
-                    {cgpaBreakdown.data.overall.arrears}
-                  </p>
-                </div>
-                <div className="w-[1px] h-10 bg-slate-200" />
-                <div className="flex flex-col">
-                  <p className="m-0 text-[0.7rem] uppercase tracking-[0.08em] font-bold text-[var(--muted)] mb-1">
-                    Overall CGPA
-                  </p>
-                  <p className="m-0 text-[2rem] font-extrabold text-[var(--foreground)] leading-none">
-                    {fmtMaybe(cgpaBreakdown.data.overall.cgpa)}
-                  </p>
-                </div>
-              </div>
-            )}
+          {/* Student header */}
+          <div className="mb-1">
+            <h3 className="m-0 mb-1 text-[1.1rem] font-bold text-[var(--foreground)]">
+              {student.data.student.name}
+            </h3>
+            <p className="m-0 text-[var(--muted)] text-sm">
+              {student.data.student.regno} • SGPA {fmtNumber(student.data.student.sgpa)} • Rank{" "}
+              {student.data.student.rank ?? "–"}
+            </p>
           </div>
 
           {/* Current semester subjects */}
-          <ResultBlock title={`Semester ${semester} — Subject Snapshot`}>
+          <ResultBlock title="Current Semester Subject Snapshot">
             <ScrollTable cols={["Code", "Subject", "Grade", "Status", "GP"]}>
               {student.data.student.subjects.map((item) => (
-                <tr key={item.code} className={trHover}>
+                <tr key={item.code} className="hover:bg-[#f4f7ff] transition-colors">
                   <Td>{item.code}</Td>
                   <Td>{item.name}</Td>
                   <Td>{item.grade}</Td>
@@ -220,95 +216,37 @@ function StudentPageContent() {
             </ScrollTable>
           </ResultBlock>
 
-          {/* ── CGPA Breakdown + charts ───────────────────────────────── */}
-          <SectionBlock>
-            <SectionHead
-              title="CGPA Breakdown"
-              description="Semester-wise and subject-wise calculations based on globally selected semesters."
-            />
-
+          {/* CGPA Breakdown */}
+          <ResultBlock title="SGPA and CGPA Calculation Breakdown">
+            {cgpaBreakdown.loading && <Notice>Loading CGPA calculations...</Notice>}
             {cgpaBreakdown.error && <Notice error>{cgpaBreakdown.error}</Notice>}
-
             {cgpaBreakdown.data && (
-              <div className="flex flex-col gap-4">
-                {/* Stats */}
-                <div className="grid grid-cols-2 gap-2 max-w-[400px]">
-                  <StatTile label="Total Credits" value={cgpaBreakdown.data.overall.credits.toFixed(1)} />
-                  <StatTile label="Total Grade Points" value={cgpaBreakdown.data.overall.grade_points.toFixed(2)} />
+              <>
+                {/* Overall stats */}
+                <div className="grid grid-cols-5 gap-2">
+                  {[
+                    { label: "Current SGPA", value: fmtMaybe(student.data.student.sgpa) },
+                    { label: "Overall CGPA", value: fmtMaybe(cgpaBreakdown.data.overall.cgpa) },
+                    { label: "Total Credits", value: cgpaBreakdown.data.overall.credits.toFixed(1) },
+                    {
+                      label: "Total Grade Points",
+                      value: cgpaBreakdown.data.overall.grade_points.toFixed(2),
+                    },
+                    { label: "Total Arrears", value: String(cgpaBreakdown.data.overall.arrears) },
+                  ].map(({ label, value }) => (
+                    <div
+                      key={label}
+                      className="border border-dashed border-[#c6ceef] rounded-[10px] bg-[#f7f9ff] px-3 py-2.5"
+                    >
+                      <strong className="block text-[0.7rem] uppercase tracking-[0.04em] font-[650] text-[var(--muted)]">
+                        {label}
+                      </strong>
+                      <p className="m-0 mt-1 text-[1.1rem] font-bold text-[var(--foreground)]">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-
-                {/* ── SGPA & CGPA Trend Chart ──────────────────────────── */}
-                {trendData.length > 1 && (
-                  <div className="flex flex-col gap-1">
-                    <p className="text-[0.78rem] font-bold text-[var(--foreground)] m-0 uppercase tracking-[0.04em]">
-                      SGPA & CGPA Trend
-                    </p>
-                    <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={trendData} margin={{ top: 8, right: 24, bottom: 4, left: 0 }}>
-                          <CartesianGrid {...gridProps} />
-                          <XAxis dataKey="label" {...axisProps} />
-                          <YAxis {...axisProps} domain={[0, 10]} />
-                          <Tooltip
-                            formatter={(v: any) => v != null ? Number(v).toFixed(2) : "–"}
-                            contentStyle={{ borderRadius: 10, border: `1px solid ${GRID_STROKE}`, fontSize: 13 }}
-                          />
-                          <Legend wrapperStyle={{ fontSize: 12 }} />
-                          <Line
-                            type="monotone"
-                            dataKey="sgpa"
-                            name="SGPA"
-                            stroke={CHART_COLORS[0]}
-                            strokeWidth={2.5}
-                            dot={{ r: 4, fill: CHART_COLORS[0] }}
-                            connectNulls
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="cgpa"
-                            name="CGPA (cumulative)"
-                            stroke={CHART_COLORS[2]}
-                            strokeWidth={2}
-                            strokeDasharray="6 3"
-                            dot={{ r: 3, fill: CHART_COLORS[2] }}
-                            connectNulls
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Arrears area chart ───────────────────────────────── */}
-                {trendData.length > 1 && trendData.some((p) => p.arrears > 0) && (
-                  <div className="flex flex-col gap-1">
-                    <p className="text-[0.78rem] font-bold text-[var(--foreground)] m-0 uppercase tracking-[0.04em]">
-                      Arrears per Semester
-                    </p>
-                    <div className="h-40">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={trendData} margin={{ top: 8, right: 24, bottom: 4, left: 0 }}>
-                          <CartesianGrid {...gridProps} />
-                          <XAxis dataKey="label" {...axisProps} />
-                          <YAxis {...axisProps} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{ borderRadius: 10, border: `1px solid ${GRID_STROKE}`, fontSize: 13 }}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="arrears"
-                            name="Arrears"
-                            stroke={CHART_COLORS[1]}
-                            fill={CHART_COLORS[1]}
-                            fillOpacity={0.15}
-                            strokeWidth={2}
-                            dot={{ r: 3 }}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
 
                 <p className="text-sm text-slate-600 m-0">
                   Overall CGPA ={" "}
@@ -317,56 +255,101 @@ function StudentPageContent() {
                   <strong>{fmtMaybe(cgpaBreakdown.data.overall.cgpa)}</strong>
                 </p>
 
-                {/* Per-semester summary table */}
                 <ScrollTable cols={["Semester", "Credits", "Grade Points", "SGPA", "Arrears"]}>
-                  {cgpaBreakdown.data.semesters.map((s) => (
-                    <tr key={s.semester} className={trHover}>
-                      <Td>Semester {s.semester}</Td>
-                      <Td>{s.totals.credits.toFixed(1)}</Td>
-                      <Td>{s.totals.grade_points.toFixed(2)}</Td>
-                      <Td>{fmtMaybe(s.totals.sgpa)}</Td>
-                      <Td>{s.totals.arrears}</Td>
+                  {cgpaBreakdown.data.semesters.map((item) => (
+                    <tr key={`sgpa-${item.semester}`} className="hover:bg-[#f4f7ff] transition-colors">
+                      <Td>Semester {item.semester}</Td>
+                      <Td>{item.totals.credits.toFixed(1)}</Td>
+                      <Td>{item.totals.grade_points.toFixed(2)}</Td>
+                      <Td>{fmtMaybe(item.totals.sgpa)}</Td>
+                      <Td>{item.totals.arrears}</Td>
                     </tr>
                   ))}
                 </ScrollTable>
 
-                {/* Subject detail across all semesters */}
-                <div className="flex flex-col gap-6 mt-4">
-                  {cgpaBreakdown.data.semesters.map((semData) => (
-                    <div key={semData.semester} className="flex flex-col gap-2">
-                       <p className="text-[0.85rem] text-[var(--foreground)] m-0 border-b border-[var(--panel-border)] pb-1.5 mb-1 px-1">
-                        <strong>Semester {semData.semester}</strong> — SGPA:{" "}
-                        <strong>{semData.totals.grade_points.toFixed(2)}</strong> /{" "}
-                        <strong>{semData.totals.credits.toFixed(1)}</strong> ={" "}
-                        <strong>{fmtMaybe(semData.totals.sgpa)}</strong>
-                      </p>
-                      <ScrollTable
-                        cols={["Code", "Subject", "Grade", "Credit", "GP", "Credit × GP", "Included"]}
-                      >
-                        {semData.subjects.map((subj) => (
-                          <tr key={subj.code} className={trHover}>
-                            <Td>{subj.code}</Td>
-                            <Td>{subj.name}</Td>
-                            <Td>{subj.grade}</Td>
-                            <Td>{subj.credit.toFixed(1)}</Td>
-                            <Td>{subj.gp ?? "–"}</Td>
-                            <Td>{subj.credit_x_gp.toFixed(2)}</Td>
-                            <Td>
-                              {subj.included ? (
-                                <span className="text-green-600 font-bold">Yes</span>
-                              ) : (
-                                <span className="text-slate-400">No</span>
-                              )}
-                            </Td>
-                          </tr>
-                        ))}
-                      </ScrollTable>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                {selectedSemesterBreakdown && (
+                  <>
+                    <p className="text-sm text-slate-600 m-0">
+                      Semester {selectedSemesterBreakdown.semester} SGPA ={" "}
+                      <strong>{selectedSemesterBreakdown.totals.grade_points.toFixed(2)}</strong> /{" "}
+                      <strong>{selectedSemesterBreakdown.totals.credits.toFixed(1)}</strong> ={" "}
+                      <strong>{fmtMaybe(selectedSemesterBreakdown.totals.sgpa)}</strong>
+                    </p>
+                    <ScrollTable
+                      cols={["Code", "Subject", "Grade", "Credit", "GP", "Credit × GP", "Included"]}
+                    >
+                      {selectedSemesterBreakdown.subjects.map((item) => (
+                        <tr
+                          key={`subject-calc-${selectedSemesterBreakdown.semester}-${item.code}`}
+                          className="hover:bg-[#f4f7ff] transition-colors"
+                        >
+                          <Td>{item.code}</Td>
+                          <Td>{item.name}</Td>
+                          <Td>{item.grade}</Td>
+                          <Td>{item.credit.toFixed(1)}</Td>
+                          <Td>{item.gp ?? "–"}</Td>
+                          <Td>{item.credit_x_gp.toFixed(2)}</Td>
+                          <Td>{item.included ? "Yes" : "No"}</Td>
+                        </tr>
+                      ))}
+                    </ScrollTable>
+                  </>
+                )}
+              </>
             )}
-          </SectionBlock>
+          </ResultBlock>
+
+          {/* Audit Trail */}
+          <ResultBlock title="Audit Trail Timeline">
+            {studentAudit.loading && <Notice>Loading audit trail...</Notice>}
+            {studentAudit.error && <Notice error>{studentAudit.error}</Notice>}
+            {studentAudit.data && (
+              <>
+                <ScrollTable
+                  cols={[
+                    "Subject",
+                    "State",
+                    "Grade",
+                    "Result Date",
+                    "Exam",
+                    "Semester Label",
+                    "Recency Rank",
+                  ]}
+                >
+                  {subjectAuditTrail.map((event) => (
+                    <tr
+                      key={`${event.exam_id}-${event.subject_code}-${event.grade}-${event.result_date}-${event.recency_rank}`}
+                      className="hover:bg-[#f4f7ff] transition-colors"
+                    >
+                      <Td>
+                        {event.subject_code} – {event.subject_name}
+                      </Td>
+                      <Td>{event.state}</Td>
+                      <Td>{event.grade}</Td>
+                      <Td>{event.result_date}</Td>
+                      <Td>{event.exam_name}</Td>
+                      <Td>{event.sem_name}</Td>
+                      <Td>{event.recency_rank}</Td>
+                    </tr>
+                  ))}
+                </ScrollTable>
+
+                <ResultBlock title="Effective Subjects (Final Audit Output)">
+                  <ScrollTable cols={["Code", "Subject", "Effective Grade", "Status", "GP"]}>
+                    {studentAudit.data.effective_subjects.map((item) => (
+                      <tr key={item.code} className="hover:bg-[#f4f7ff] transition-colors">
+                        <Td>{item.code}</Td>
+                        <Td>{item.name}</Td>
+                        <Td>{item.grade}</Td>
+                        <Td>{item.status}</Td>
+                        <Td>{gradePointMap[item.grade] ?? 0}</Td>
+                      </tr>
+                    ))}
+                  </ScrollTable>
+                </ResultBlock>
+              </>
+            )}
+          </ResultBlock>
         </>
       )}
     </div>
@@ -378,7 +361,7 @@ export default function StudentPage() {
     <Suspense
       fallback={
         <div className="p-4">
-          <p className="text-sm text-[var(--muted)] m-0">Loading student tools…</p>
+          <p className="text-sm text-[var(--muted)] m-0">Loading student tools...</p>
         </div>
       }
     >

@@ -988,17 +988,12 @@ def student_audit_v2(
 
     source = f"sqlite:{db_path.name};batch={selected_batch};sem_name=ALL"
 
-    student_name = events[0].get("studentName", "N/A") if events else "N/A"
-    sgpa = calculate_sgpa(semester, effective_map)
-
     return {
         "semester": semester,
         "department_code": dept_code,
         "batch": selected_batch,
         "source": source,
         "regno": regno.strip(),
-        "name": student_name,
-        "sgpa": round(sgpa, 2) if sgpa else None,
         "effective_subjects": [
             {
                 "code": code,
