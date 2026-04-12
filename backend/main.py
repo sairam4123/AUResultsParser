@@ -18,6 +18,7 @@ from backend.cgpa import (
     build_class_cgpa_payload,
     build_compare_breakdown_payload,
     build_student_breakdown_payload,
+    compute_semester_stats,
 )
 from backend.db import SQLiteResultRepository
 from backend.parser import (
@@ -986,6 +987,14 @@ def student_audit_v2(
         batch=selected_batch,
     )
 
+    effective_stats = compute_semester_stats(effective_map)
+    student_name = "N/A"
+    for item in events:
+        raw_name = str(item.get("studentName", "")).strip()
+        if raw_name:
+            student_name = raw_name
+            break
+
     source = f"sqlite:{db_path.name};batch={selected_batch};sem_name=ALL"
 
     return {
@@ -994,6 +1003,18 @@ def student_audit_v2(
         "batch": selected_batch,
         "source": source,
         "regno": regno.strip(),
+        "name": student_name,
+        "sgpa": (
+            None if effective_stats.sgpa is None else round(effective_stats.sgpa, 2)
+        ),
+        "effective_totals": {
+            "credits": round(effective_stats.credits, 1),
+            "grade_points": round(effective_stats.grade_points, 2),
+            "sgpa": (
+                None if effective_stats.sgpa is None else round(effective_stats.sgpa, 2)
+            ),
+            "arrears": effective_stats.arrears,
+        },
         "effective_subjects": [
             {
                 "code": code,

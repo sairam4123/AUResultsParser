@@ -76,31 +76,74 @@ export const parseSemestersInput = (value: string): string | null => {
 export const buildSubjectComparisonTable = (
   students: StudentSubjects,
 ): SubjectComparisonTable => {
-  const subjectMap = new Map<string, string>();
+  const subjectMap = new Map<
+    string,
+    {
+      code: string;
+      name: string;
+      semester: number | null;
+    }
+  >();
   const perStudentSubjects = students.map((student) => {
     const map = new Map<string, string>();
     for (const subject of student.subjects) {
-      map.set(subject.code, subject.grade);
-      if (!subjectMap.has(subject.code)) {
-        subjectMap.set(subject.code, subject.name);
+      const semesterValue = (subject as { semester?: number }).semester;
+      const semester =
+        typeof semesterValue === "number" && Number.isFinite(semesterValue)
+          ? semesterValue
+          : null;
+      const subjectKey =
+        semester == null ? subject.code : `S${semester}::${subject.code}`;
+
+      map.set(subjectKey, subject.grade);
+      if (!subjectMap.has(subjectKey)) {
+        subjectMap.set(subjectKey, {
+          code: subject.code,
+          name: subject.name,
+          semester,
+        });
       }
     }
     return map;
   });
 
-  const subjectCodes = Array.from(subjectMap.keys()).sort();
-  const rows = subjectCodes.map((subjectCode) => {
+  const subjectKeys = Array.from(subjectMap.keys()).sort((left, right) => {
+    const leftMeta = subjectMap.get(left)!;
+    const rightMeta = subjectMap.get(right)!;
+
+    if (leftMeta.semester == null && rightMeta.semester != null) {
+      return 1;
+    }
+    if (leftMeta.semester != null && rightMeta.semester == null) {
+      return -1;
+    }
+
+    if (
+      leftMeta.semester != null &&
+      rightMeta.semester != null &&
+      leftMeta.semester !== rightMeta.semester
+    ) {
+      return leftMeta.semester - rightMeta.semester;
+    }
+
+    return leftMeta.code.localeCompare(rightMeta.code);
+  });
+
+  const rows = subjectKeys.map((subjectKey) => {
     const points = perStudentSubjects.map((subjectGrades) => {
-      const grade = subjectGrades.get(subjectCode) ?? "NA";
+      const grade = subjectGrades.get(subjectKey) ?? "NA";
       return gradePointMap[grade] ?? 0;
     });
 
     const min = Math.min(...points);
     const max = Math.max(...points);
 
+    const subjectMeta = subjectMap.get(subjectKey);
+
     return {
-      subjectCode,
-      subjectName: subjectMap.get(subjectCode) ?? "N/A",
+      semester: subjectMeta?.semester ?? null,
+      subjectCode: subjectMeta?.code ?? "N/A",
+      subjectName: subjectMeta?.name ?? "N/A",
       points: points.map((value) => ({ value, diff: value - min })),
       spread: max - min,
     };
@@ -117,6 +160,7 @@ export const buildSubjectComparisonTable = (
   const totalMax = Math.max(...totalPoints);
 
   rows.push({
+    semester: null,
     subjectCode: "Total GP",
     subjectName: "",
     points: totalPoints.map((value) => ({ value, diff: value - totalMin })),
@@ -131,7 +175,7 @@ export const buildSubjectComparisonTable = (
   ];
 
   const footer = students.map(
-    (student) => `SGPA ${student.regno}: ${student.sgpa.toFixed(2)}`,
+    (student) => `Avg SGPA ${student.regno}: ${student.sgpa.toFixed(2)}`,
   );
 
   return { headers, rows, footer };

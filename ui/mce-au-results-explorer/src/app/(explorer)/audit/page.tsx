@@ -1,12 +1,22 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  Suspense,
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import Select, { type SingleValue } from "react-select";
 import { api, type StudentAuditResponse } from "../../../lib/api";
 import { useExplorer } from "../../_explorer/context";
+import { type StudentOption } from "../../_explorer/types";
 import { initialDataState, type DataState } from "../../_explorer/types";
 import {
   btnPrimary,
-  inputCls,
   Notice,
   SectionBlock,
   SectionHead,
@@ -49,6 +59,7 @@ type AuditPerSemester = {
   semester: number;
   name: string;
   sgpa: number | null;
+  arrears: number;
   subjects: SubjectTimeline[];
 };
 
@@ -56,7 +67,7 @@ function buildAuditView(
   audits: { semester: number; data: StudentAuditResponse }[],
 ): AuditPerSemester[] {
   return audits
-    .sort((a, b) => a.semester - b.semester)
+    .sort((a, b) => b.semester - a.semester)
     .map(({ semester, data }) => {
       // Group events by subject code
       const byCode = new Map<string, StudentAuditResponse["events"]>();
@@ -97,89 +108,201 @@ function buildAuditView(
       }
 
       subjects.sort((a, b) => a.code.localeCompare(b.code));
-      return { semester, name: data.name, sgpa: data.sgpa, subjects };
+      return {
+        semester,
+        name: data.name,
+        sgpa: data.sgpa,
+        arrears: data.effective_totals.arrears,
+        subjects,
+      };
     });
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-export default function AuditPage() {
-  const { canQuery, meta, semesters, department, batch } = useExplorer();
+function AuditPageContent() {
+  const {
+    canQuery,
+    meta,
+    department,
+    batch,
+    studentsDirectory,
+    selectedSemesters,
+  } = useExplorer();
+  const searchParams = useSearchParams();
 
-  const [regnoInput, setRegnoInput] = useState("");
-  const [audit, setAudit] = useState<DataState<AuditPerSemester[]>>(initialDataState);
+  const [regnoInput, setRegnoInput] = useState<string>(
+    () => searchParams.get("regno")?.trim() ?? "",
+  );
+  const [selectedStudent, setSelectedStudent] = useState<StudentOption | null>(
+    null,
+  );
+  const [audit, setAudit] =
+    useState<DataState<AuditPerSemester[]>>(initialDataState);
+  const autoLoadedRegno = useRef<string | null>(null);
 
-  const onLoad = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!canQuery) return;
-    const regno = regnoInput.trim();
+  const studentOptions = useMemo<StudentOption[]>(() => {
+    if (!studentsDirectory.data) {
+      return [];
+    }
+
+    return studentsDirectory.data.map((item) => ({
+      value: item.regno,
+      label: `${item.name} (${item.regno})`,
+    }));
+  }, [studentsDirectory.data]);
+
+  const selectedStudentValue = useMemo(() => {
+    if (selectedStudent) {
+      return selectedStudent;
+    }
+
+    const regno = regnoInput.trim().toUpperCase();
     if (!regno) {
-      setAudit({ loading: false, error: "Enter a register number.", data: null });
-      return;
+      return null;
     }
 
-    // Use all available semesters or the selected ones
-    const semList =
-      semesters.length > 0
-        ? [...semesters].sort((a, b) => a - b)
-        : meta.data?.semesters.sort((a, b) => a - b) ?? [];
+    return (
+      studentOptions.find((item) => item.value.toUpperCase() === regno) ?? null
+    );
+  }, [regnoInput, selectedStudent, studentOptions]);
 
-    if (semList.length === 0) {
-      setAudit({ loading: false, error: "No semesters available.", data: null });
-      return;
-    }
-
-    setAudit({ loading: true, error: null, data: null });
-
-    try {
-      const results = await Promise.allSettled(
-        semList.map((sem) =>
-          api.getStudentAudit(sem, department, batch || null, regno),
-        ),
-      );
-
-      const audits: { semester: number; data: StudentAuditResponse }[] = [];
-      results.forEach((r, i) => {
-        if (r.status === "fulfilled") {
-          audits.push({ semester: semList[i], data: r.value });
-        }
-      });
-
-      if (audits.length === 0) {
-        setAudit({ loading: false, error: "No audit data found for this student in the selected semesters.", data: null });
+  const loadAudit = useCallback(
+    async (rawRegno: string) => {
+      if (!canQuery) return;
+      const regno = rawRegno.trim();
+      if (!regno) {
+        setAudit({
+          loading: false,
+          error: "Enter a register number.",
+          data: null,
+        });
         return;
       }
 
-      setAudit({ loading: false, error: null, data: buildAuditView(audits) });
-    } catch (err) {
-      setAudit({
-        loading: false,
-        error: err instanceof Error ? err.message : "Audit lookup failed",
-        data: null,
-      });
-    }
+      const semList =
+        selectedSemesters.length > 0
+          ? [...selectedSemesters].sort((a, b) => b - a)
+          : [...(meta.data?.semesters ?? [])].sort((a, b) => b - a);
+
+      if (semList.length === 0) {
+        setAudit({
+          loading: false,
+          error: "No semesters available.",
+          data: null,
+        });
+        return;
+      }
+
+      setAudit({ loading: true, error: null, data: null });
+
+      try {
+        const results = await Promise.allSettled(
+          semList.map((sem) =>
+            api.getStudentAudit(sem, department, batch || null, regno),
+          ),
+        );
+
+        const audits: { semester: number; data: StudentAuditResponse }[] = [];
+        results.forEach((r, i) => {
+          if (r.status === "fulfilled") {
+            audits.push({ semester: semList[i], data: r.value });
+          }
+        });
+
+        if (audits.length === 0) {
+          setAudit({
+            loading: false,
+            error:
+              "No audit data found for this student in the selected semesters.",
+            data: null,
+          });
+          return;
+        }
+
+        setAudit({ loading: false, error: null, data: buildAuditView(audits) });
+      } catch (err) {
+        setAudit({
+          loading: false,
+          error: err instanceof Error ? err.message : "Audit lookup failed",
+          data: null,
+        });
+      }
+    },
+    [batch, canQuery, department, meta.data?.semesters, selectedSemesters],
+  );
+
+  const onLoad = (e: FormEvent) => {
+    e.preventDefault();
+    const regno = selectedStudentValue?.value ?? regnoInput;
+    void loadAudit(regno);
   };
+
+  useEffect(() => {
+    const regnoFromQuery = searchParams.get("regno")?.trim();
+    if (!canQuery || !regnoFromQuery) {
+      return;
+    }
+
+    if (autoLoadedRegno.current === regnoFromQuery) {
+      return;
+    }
+
+    autoLoadedRegno.current = regnoFromQuery;
+    void loadAudit(regnoFromQuery);
+  }, [canQuery, loadAudit, searchParams]);
 
   return (
     <div className="p-4 overflow-auto max-h-[calc(100vh-150px)] flex flex-col gap-4">
       <form className="flex items-end gap-2.5" onSubmit={onLoad}>
-        <input
-          type="text"
-          placeholder="Enter register number for audit trail"
-          value={regnoInput}
-          onChange={(e) => setRegnoInput(e.target.value)}
-          className={`${inputCls} flex-1`}
-        />
+        <div className="flex-1">
+          <Select<StudentOption, false>
+            inputId="audit-regno-select"
+            options={studentOptions}
+            value={selectedStudentValue}
+            onChange={(option: SingleValue<StudentOption>) => {
+              setSelectedStudent(option);
+              setRegnoInput(option?.value ?? "");
+            }}
+            onInputChange={(value, metaAction) => {
+              if (metaAction.action !== "input-change") {
+                return;
+              }
+
+              setRegnoInput(value);
+              if (
+                selectedStudent &&
+                selectedStudent.value.toUpperCase() !==
+                  value.trim().toUpperCase()
+              ) {
+                setSelectedStudent(null);
+              }
+            }}
+            isLoading={studentsDirectory.loading}
+            isClearable
+            isSearchable
+            placeholder="Search student by name or regno"
+            classNamePrefix="rs"
+            menuPortalTarget={
+              typeof window !== "undefined" ? document.body : null
+            }
+            styles={{
+              menuPortal: (base) => ({ ...base, zIndex: 70 }),
+            }}
+          />
+        </div>
         <button
           type="submit"
           disabled={!canQuery || audit.loading}
           className={`${btnPrimary} shrink-0`}
         >
-          {audit.loading ? "Loading…" : "Load Audit Trail"}
+          {audit.loading ? "Loading..." : "View Audit"}
         </button>
       </form>
 
-      {!canQuery && <Notice>Select department and semesters to load audit data.</Notice>}
+      {!canQuery && (
+        <Notice>Select department and semesters to load audit data.</Notice>
+      )}
       {audit.loading && <Notice>Fetching audit trail across semesters…</Notice>}
       {audit.error && <Notice error>{audit.error}</Notice>}
 
@@ -200,16 +323,16 @@ export default function AuditPage() {
           <div
             className="grid gap-3"
             style={{
-              gridTemplateColumns: `repeat(${Math.min(audit.data.length, 4)}, minmax(280px, 1fr))`,
+              gridTemplateColumns: `repeat(${Math.min(audit.data.length, 3)}, minmax(280px, 1fr))`,
             }}
           >
-            {audit.data.map(({ semester, sgpa, subjects }) => (
+            {audit.data.map(({ semester, sgpa, arrears, subjects }) => (
               <SectionBlock key={semester}>
                 <SectionHead
                   title={`Semester ${semester}`}
                   description={`${subjects.length} subjects${
-                    sgpa !== null ? ` · SGPA ${sgpa.toFixed(2)}` : ""
-                  }`}
+                    sgpa !== null ? ` · Effective SGPA ${sgpa.toFixed(2)}` : ""
+                  }${Number.isFinite(arrears) ? ` · Arrears ${arrears}` : ""}`}
                 />
 
                 <div className="flex flex-col gap-2.5">
@@ -229,26 +352,30 @@ export default function AuditPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {subj.events.length > 0 && subj.events[0].state === "REVAL" && (
-                            <span className="text-[0.66rem] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
-                              REVAL
-                            </span>
-                          )}
-                          {subj.events.length > 0 && subj.events[0].state === "CHALLENGE" && (
-                            <span className="text-[0.66rem] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-800">
-                              CHALLENGE
-                            </span>
-                          )}
+                          {subj.events.length > 0 &&
+                            subj.events[0].state === "REVAL" && (
+                              <span className="text-[0.66rem] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
+                                REVAL
+                              </span>
+                            )}
+                          {subj.events.length > 0 &&
+                            subj.events[0].state === "CHALLENGE" && (
+                              <span className="text-[0.66rem] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-800">
+                                CHALLENGE
+                              </span>
+                            )}
                           <span
                             className={`text-[0.72rem] font-bold px-1.5 py-0.5 rounded ${
-                              STATUS_COLORS[subj.effectiveStatus] ?? "bg-slate-100 text-slate-600"
+                              STATUS_COLORS[subj.effectiveStatus] ??
+                              "bg-slate-100 text-slate-600"
                             }`}
                           >
                             {subj.effectiveStatus}
                           </span>
                           <span
                             className={`text-[0.85rem] font-bold ${
-                              GRADE_COLORS[subj.effectiveGrade] ?? "text-slate-600"
+                              GRADE_COLORS[subj.effectiveGrade] ??
+                              "text-slate-600"
                             }`}
                           >
                             {subj.effectiveGrade}
@@ -262,17 +389,22 @@ export default function AuditPage() {
                           {subj.events.map((ev, idx) => {
                             const isLatest = idx === 0;
                             const isSuperseded = !isLatest;
-                            
+
                             let stateBadgeCls = "bg-blue-50 text-blue-600";
-                            if (isSuperseded) stateBadgeCls = "bg-slate-50 text-slate-400";
-                            else if (ev.state === "REVAL") stateBadgeCls = "bg-purple-100 text-purple-800";
-                            else if (ev.state === "CHALLENGE") stateBadgeCls = "bg-orange-100 text-orange-800";
+                            if (isSuperseded)
+                              stateBadgeCls = "bg-slate-50 text-slate-400";
+                            else if (ev.state === "REVAL")
+                              stateBadgeCls = "bg-purple-100 text-purple-800";
+                            else if (ev.state === "CHALLENGE")
+                              stateBadgeCls = "bg-orange-100 text-orange-800";
 
                             return (
                               <div
                                 key={`${ev.exam_id}-${ev.subject_code}-${idx}`}
                                 className={`flex items-center gap-2 text-[0.68rem] ${
-                                  isSuperseded ? "text-slate-400" : "text-slate-700"
+                                  isSuperseded
+                                    ? "text-slate-400"
+                                    : "text-slate-700"
                                 }`}
                               >
                                 {/* Timeline dot */}
@@ -290,10 +422,14 @@ export default function AuditPage() {
                                 >
                                   {ev.grade}
                                 </span>
-                                <span className={isSuperseded ? "line-through" : ""}>
+                                <span
+                                  className={isSuperseded ? "line-through" : ""}
+                                >
                                   {ev.exam_name}
                                 </span>
-                                <span className={`px-1 rounded-[4px] text-[0.6rem] font-bold ${stateBadgeCls}`}>
+                                <span
+                                  className={`px-1 rounded-[4px] text-[0.6rem] font-bold ${stateBadgeCls}`}
+                                >
                                   {ev.state}
                                 </span>
                                 <span className="text-slate-400 ml-auto shrink-0">
@@ -306,13 +442,17 @@ export default function AuditPage() {
                       )}
 
                       {subj.events.length === 0 && (
-                        <p className="text-[0.65rem] text-slate-400 m-0 italic">No exam events recorded.</p>
+                        <p className="text-[0.65rem] text-slate-400 m-0 italic">
+                          No exam events recorded.
+                        </p>
                       )}
                     </div>
                   ))}
 
                   {subjects.length === 0 && (
-                    <p className="text-xs text-slate-400 m-0 italic">No subjects for this semester.</p>
+                    <p className="text-xs text-slate-400 m-0 italic">
+                      No subjects for this semester.
+                    </p>
                   )}
                 </div>
               </SectionBlock>
@@ -321,5 +461,21 @@ export default function AuditPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AuditPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-4">
+          <p className="text-sm text-[var(--muted)] m-0">
+            Loading audit tools...
+          </p>
+        </div>
+      }
+    >
+      <AuditPageContent />
+    </Suspense>
   );
 }

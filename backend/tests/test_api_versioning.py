@@ -153,6 +153,14 @@ def test_v2_student_audit_exposes_events_and_effective_subjects(monkeypatch, tmp
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["name"] == "Sample Student"
+    assert payload["sgpa"] == 6.0
+    assert payload["effective_totals"]["arrears"] == 0
     assert len(payload["events"]) == 2
-    assert any(item["state"] == "REVAL" and item["grade"] == "B" for item in payload["events"])
-    assert any(item["code"] == "CS3251" and item["grade"] == "B" for item in payload["effective_subjects"])
+    assert any(
+        item["state"] == "REVAL" and item["grade"] == "B" for item in payload["events"]
+    )
+    assert any(
+        item["code"] == "CS3251" and item["grade"] == "B"
+        for item in payload["effective_subjects"]
+    )

@@ -44,11 +44,18 @@ body {
   margin: 0;
   background:
     radial-gradient(circle at 10% 8%, rgba(48, 64, 160, 0.18), transparent 34%),
-    radial-gradient(circle at 92% 12%, rgba(255, 240, 176, 0.32), transparent 31%),
-    linear-gradient(180deg, #f7f8ff 0%, #edf1ff 100%),
-    var(--background);
+    radial-gradient(
+      circle at 92% 12%,
+      rgba(255, 240, 176, 0.32),
+      transparent 31%
+    ),
+    linear-gradient(180deg, #f7f8ff 0%, #edf1ff 100%), var(--background);
   background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
-  background-size: 100% 100%, 100% 100%, 100% 100%, auto;
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    auto;
   background-attachment: fixed, fixed, fixed, fixed;
   color: var(--foreground);
   font-family: var(--font-geist-sans), "Space Grotesk", sans-serif;
@@ -71,4 +78,13 @@ body {
 
 .rs__menu {
   z-index: 30;
+}
+
+.rs__menu-portal {
+  z-index: 70 !important;
+}
+
+.rs__value-container {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
 }

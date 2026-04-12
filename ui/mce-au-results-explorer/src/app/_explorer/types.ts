@@ -23,6 +23,7 @@ export type ComparisonPoint = {
 };
 
 export type ComparisonRow = {
+  semester: number | null;
   subjectCode: string;
   subjectName: string;
   points: ComparisonPoint[];

@@ -38,7 +38,8 @@ type ExplorerContextValue = {
   department: string;
   setDepartment: Dispatch<SetStateAction<string>>;
   semester: number;
-  setSemester: Dispatch<SetStateAction<number>>;
+  selectedSemesters: number[];
+  setSelectedSemesters: Dispatch<SetStateAction<number[]>>;
   batch: string;
   setBatch: Dispatch<SetStateAction<string>>;
   topK: number;
@@ -57,23 +58,27 @@ const initialDataState = <T,>(loading = false): DataState<T> => ({
 const ExplorerContext = createContext<ExplorerContextValue | null>(null);
 
 export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
-  const [meta, setMeta] = useState<DataState<MetaResponse>>(initialDataState(true));
+  const [meta, setMeta] = useState<DataState<MetaResponse>>(
+    initialDataState(true),
+  );
   const [summary, setSummary] = useState<DataState<SummaryResponse>>(
     initialDataState(true),
   );
-  const [ranks, setRanks] = useState<DataState<RankListResponse>>(initialDataState(true));
+  const [ranks, setRanks] = useState<DataState<RankListResponse>>(
+    initialDataState(true),
+  );
   const [arrears, setArrears] = useState<DataState<ArrearsResponse>>(
     initialDataState(true),
   );
   const [subjectSummary, setSubjectSummary] = useState<
     DataState<SubjectSummaryResponse>
   >(initialDataState(true));
-  const [studentsDirectory, setStudentsDirectory] = useState<
-    DataState<StudentDirectoryItem[]>
-  >(initialDataState());
+  const [studentsDirectory, setStudentsDirectory] =
+    useState<DataState<StudentDirectoryItem[]>>(initialDataState());
 
   const [department, setDepartment] = useState<string>("");
   const [semester, setSemester] = useState<number>(0);
+  const [selectedSemesters, setSelectedSemesters] = useState<number[]>([]);
   const [batch, setBatch] = useState<string>("");
   const [topK, setTopK] = useState<number>(10);
 
@@ -94,8 +99,9 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
         }
 
         if (payload.semesters.length > 0) {
-          const latestSemester = payload.semesters[payload.semesters.length - 1];
-          setSemester(latestSemester);
+          const sortedSemesters = [...payload.semesters].sort((a, b) => b - a);
+          setSelectedSemesters(sortedSemesters);
+          setSemester(sortedSemesters[0]);
         }
 
         if (payload.batches.length > 0) {
@@ -114,9 +120,20 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (selectedSemesters.length === 0) {
+      setSemester(0);
+      return;
+    }
+
+    if (semester !== selectedSemesters[0]) {
+      setSemester(selectedSemesters[0]);
+    }
+  }, [selectedSemesters, semester]);
+
   const canQuery = useMemo(
-    () => department.length > 0 && semester > 0,
-    [department, semester],
+    () => department.length > 0 && selectedSemesters.length > 0,
+    [department, selectedSemesters],
   );
 
   useEffect(() => {
@@ -165,8 +182,12 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
 
       if (arrearsResult.status === "fulfilled") {
         const mergedStudents = mergeArrearStudents([
-          arrears1Result.status === "fulfilled" ? arrears1Result.value.students : null,
-          arrears2Result.status === "fulfilled" ? arrears2Result.value.students : null,
+          arrears1Result.status === "fulfilled"
+            ? arrears1Result.value.students
+            : null,
+          arrears2Result.status === "fulfilled"
+            ? arrears2Result.value.students
+            : null,
           arrears3PlusResult.status === "fulfilled"
             ? arrears3PlusResult.value.students
             : null,
@@ -210,12 +231,22 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     }
 
     api
-      .getStudentsDirectory(semester, department, batch || null, { limit: 3000 })
+      .getStudentsDirectory(semester, department, batch || null, {
+        limit: 3000,
+      })
       .then((payload) => {
-        setStudentsDirectory({ loading: false, error: null, data: payload.items });
+        setStudentsDirectory({
+          loading: false,
+          error: null,
+          data: payload.items,
+        });
       })
       .catch((error: Error) => {
-        setStudentsDirectory({ loading: false, error: error.message, data: null });
+        setStudentsDirectory({
+          loading: false,
+          error: error.message,
+          data: null,
+        });
       });
   }, [batch, canQuery, department, semester]);
 
@@ -250,7 +281,8 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     department,
     setDepartment,
     semester,
-    setSemester,
+    selectedSemesters,
+    setSelectedSemesters,
     batch,
     setBatch,
     topK,
@@ -260,7 +292,11 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     markPanelsLoading,
   };
 
-  return <ExplorerContext.Provider value={value}>{children}</ExplorerContext.Provider>;
+  return (
+    <ExplorerContext.Provider value={value}>
+      {children}
+    </ExplorerContext.Provider>
+  );
 };
 
 export const useExplorer = () => {

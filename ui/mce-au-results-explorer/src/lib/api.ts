@@ -10,6 +10,9 @@ export type MetaResponse = {
 };
 
 export type SummaryResponse = {
+  semester: number;
+  department_code: number;
+  source: string;
   summary: {
     appeared: number;
     passed: number;
@@ -88,6 +91,14 @@ export type StudentAuditResponse = {
   batch: string;
   source: string;
   regno: string;
+  name: string;
+  sgpa: number | null;
+  effective_totals: {
+    credits: number;
+    grade_points: number;
+    sgpa: number | null;
+    arrears: number;
+  };
   effective_subjects: {
     code: string;
     name: string;
@@ -442,7 +453,9 @@ export const api = {
   }) => {
     const search = buildCgpaSearch(params);
     search.set("regno", params.regno.trim());
-    return getJson<CgpaBreakdownResponse>(`/cgpa/breakdown?${search.toString()}`);
+    return getJson<CgpaBreakdownResponse>(
+      `/cgpa/breakdown?${search.toString()}`,
+    );
   },
 
   getCgpaCompare: (params: {
