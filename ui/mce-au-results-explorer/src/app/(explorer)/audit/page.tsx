@@ -125,9 +125,11 @@ function AuditPageContent() {
     canQuery,
     meta,
     department,
+    semester,
     batch,
     studentsDirectory,
     selectedSemesters,
+    setPageKpi,
   } = useExplorer();
   const searchParams = useSearchParams();
 
@@ -139,6 +141,12 @@ function AuditPageContent() {
   );
   const [audit, setAudit] =
     useState<DataState<AuditPerSemester[]>>(initialDataState);
+  const [kpiData, setKpiData] = useState<{
+    rank: number | null;
+    sgpa: number;
+    cgpa: number | null;
+    arrears: number;
+  } | null>(null);
   const autoLoadedRegno = useRef<string | null>(null);
 
   const studentOptions = useMemo<StudentOption[]>(() => {
@@ -195,16 +203,26 @@ function AuditPageContent() {
       }
 
       setAudit({ loading: true, error: null, data: null });
+      setKpiData(null);
 
       try {
-        const results = await Promise.allSettled(
-          semList.map((sem) =>
-            api.getStudentAudit(sem, department, batch || null, regno),
+        const [auditResults, studentResult, cgpaResult] = await Promise.all([
+          Promise.allSettled(
+            semList.map((sem) =>
+              api.getStudentAudit(sem, department, batch || null, regno),
+            ),
           ),
-        );
+          api.getStudent(semester, department, batch || null, regno).catch(() => null),
+          api.getCgpaBreakdown({
+            semesters: semList.join(","),
+            department,
+            batch: batch || null,
+            regno,
+          }).catch(() => null),
+        ]);
 
         const audits: { semester: number; data: StudentAuditResponse }[] = [];
-        results.forEach((r, i) => {
+        auditResults.forEach((r, i) => {
           if (r.status === "fulfilled") {
             audits.push({ semester: semList[i], data: r.value });
           }
@@ -221,6 +239,15 @@ function AuditPageContent() {
         }
 
         setAudit({ loading: false, error: null, data: buildAuditView(audits) });
+
+        if (studentResult && cgpaResult) {
+          setKpiData({
+            rank: studentResult.student.rank,
+            sgpa: studentResult.student.sgpa,
+            cgpa: cgpaResult.overall.cgpa,
+            arrears: cgpaResult.overall.arrears,
+          });
+        }
       } catch (err) {
         setAudit({
           loading: false,
@@ -229,7 +256,7 @@ function AuditPageContent() {
         });
       }
     },
-    [batch, canQuery, department, meta.data?.semesters, selectedSemesters],
+    [batch, canQuery, department, meta.data?.semesters, selectedSemesters, semester],
   );
 
   const onLoad = (e: FormEvent) => {
@@ -251,6 +278,23 @@ function AuditPageContent() {
     autoLoadedRegno.current = regnoFromQuery;
     void loadAudit(regnoFromQuery);
   }, [canQuery, loadAudit, searchParams]);
+
+  useEffect(() => {
+    if (!audit.data || !kpiData || !selectedStudentValue) {
+      setPageKpi(null);
+      return;
+    }
+    setPageKpi({
+      title: "Audit KPI",
+      cards: [
+        { label: "Sem Rank", value: kpiData.rank ?? "N/A" },
+        { label: "Cur SGPA", value: kpiData.sgpa.toFixed(2) },
+        { label: "Cur CGPA", value: kpiData.cgpa ? kpiData.cgpa.toFixed(2) : "N/A" },
+        { label: "No. of Arrears", value: kpiData.arrears },
+      ]
+    });
+    return () => setPageKpi(null);
+  }, [audit.data, kpiData, selectedStudentValue, setPageKpi]);
 
   return (
     <div className="p-4 overflow-auto max-h-[calc(100vh-150px)] flex flex-col gap-4">

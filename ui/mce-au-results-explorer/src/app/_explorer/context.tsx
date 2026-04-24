@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -20,13 +21,7 @@ import {
   type SummaryResponse,
 } from "../../lib/api";
 import { mergeArrearStudents } from "./utils";
-import { type DataState } from "./types";
-
-type SummaryCard = {
-  label: string;
-  value: number | null;
-  suffix?: string;
-};
+import { type DataState, type SummaryCard, type KpiPayload } from "./types";
 
 type ExplorerContextValue = {
   meta: DataState<MetaResponse>;
@@ -46,6 +41,8 @@ type ExplorerContextValue = {
   setTopK: Dispatch<SetStateAction<number>>;
   canQuery: boolean;
   summaryCards: SummaryCard[];
+  pageKpi: KpiPayload | null;
+  setPageKpi: Dispatch<SetStateAction<KpiPayload | null>>;
   markPanelsLoading: () => void;
 };
 
@@ -54,6 +51,27 @@ const initialDataState = <T,>(loading = false): DataState<T> => ({
   error: null,
   data: null,
 });
+
+const getSemestersForBatch = (
+  metaData: MetaResponse | null | undefined,
+  batchValue: string,
+): number[] => {
+  if (!metaData) {
+    return [];
+  }
+
+  const normalizedBatch = batchValue.trim();
+  if (!normalizedBatch) {
+    return metaData.semesters;
+  }
+
+  const mapped = metaData.semesters_by_batch?.[normalizedBatch];
+  if (!mapped || mapped.length === 0) {
+    return metaData.semesters;
+  }
+
+  return mapped;
+};
 
 const ExplorerContext = createContext<ExplorerContextValue | null>(null);
 
@@ -81,6 +99,9 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
   const [selectedSemesters, setSelectedSemesters] = useState<number[]>([]);
   const [batch, setBatch] = useState<string>("");
   const [topK, setTopK] = useState<number>(10);
+  const [pageKpi, setPageKpi] = useState<KpiPayload | null>(null);
+  const queryRequestIdRef = useRef(0);
+  const studentsRequestIdRef = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -98,15 +119,15 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
           setDepartment(payload.departments[0].name);
         }
 
-        if (payload.semesters.length > 0) {
-          const sortedSemesters = [...payload.semesters].sort((a, b) => b - a);
-          setSelectedSemesters(sortedSemesters);
-          setSemester(sortedSemesters[0]);
-        }
+        const defaultBatch =
+          payload.batches.length > 0 ? payload.batches[0] : "";
+        setBatch(defaultBatch);
 
-        if (payload.batches.length > 0) {
-          setBatch(payload.batches[0]);
-        }
+        const sortedSemesters = [
+          ...getSemestersForBatch(payload, defaultBatch),
+        ].sort((a, b) => b - a);
+        setSelectedSemesters(sortedSemesters);
+        setSemester(sortedSemesters[0] ?? 0);
       })
       .catch((error: Error) => {
         if (!mounted) {
@@ -119,6 +140,30 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!meta.data) {
+      return;
+    }
+
+    const availableSemesters = [...getSemestersForBatch(meta.data, batch)].sort(
+      (a, b) => b - a,
+    );
+
+    const allowed = new Set(availableSemesters);
+    const filtered = selectedSemesters
+      .filter((value) => allowed.has(value))
+      .sort((a, b) => b - a);
+    const nextSemesters = filtered.length > 0 ? filtered : availableSemesters;
+
+    const changed =
+      nextSemesters.length !== selectedSemesters.length ||
+      nextSemesters.some((value, index) => value !== selectedSemesters[index]);
+
+    if (changed) {
+      setSelectedSemesters(nextSemesters);
+    }
+  }, [batch, meta.data, selectedSemesters]);
 
   useEffect(() => {
     if (selectedSemesters.length === 0) {
@@ -141,15 +186,33 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
+    const activeSemester = selectedSemesters[0] ?? 0;
+    if (!activeSemester || semester !== activeSemester) {
+      return;
+    }
+
+    const requestId = queryRequestIdRef.current + 1;
+    queryRequestIdRef.current = requestId;
+
     void Promise.allSettled([
-      api.getSummary(semester, department, batch || null),
-      api.getRankList(semester, department, batch || null, topK),
-      api.getArrears(semester, department, batch || null),
-      api.getArrears(semester, department, batch || null, { bucket: "1" }),
-      api.getArrears(semester, department, batch || null, { bucket: "2" }),
-      api.getArrears(semester, department, batch || null, { bucket: "3+" }),
-      api.getSubjectSummary(semester, department, batch || null),
+      api.getSummary(activeSemester, department, batch || null),
+      api.getRankList(activeSemester, department, batch || null, topK),
+      api.getArrears(activeSemester, department, batch || null),
+      api.getArrears(activeSemester, department, batch || null, {
+        bucket: "1",
+      }),
+      api.getArrears(activeSemester, department, batch || null, {
+        bucket: "2",
+      }),
+      api.getArrears(activeSemester, department, batch || null, {
+        bucket: "3+",
+      }),
+      api.getSubjectSummary(activeSemester, department, batch || null),
     ]).then((results) => {
+      if (requestId !== queryRequestIdRef.current) {
+        return;
+      }
+
       const [
         summaryResult,
         rankResult,
@@ -223,18 +286,30 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
         });
       }
     });
-  }, [batch, canQuery, department, semester, topK]);
+  }, [batch, canQuery, department, selectedSemesters, semester, topK]);
 
   useEffect(() => {
     if (!canQuery) {
       return;
     }
 
+    const activeSemester = selectedSemesters[0] ?? 0;
+    if (!activeSemester || semester !== activeSemester) {
+      return;
+    }
+
+    const requestId = studentsRequestIdRef.current + 1;
+    studentsRequestIdRef.current = requestId;
+
     api
-      .getStudentsDirectory(semester, department, batch || null, {
+      .getStudentsDirectory(activeSemester, department, batch || null, {
         limit: 3000,
       })
       .then((payload) => {
+        if (requestId !== studentsRequestIdRef.current) {
+          return;
+        }
+
         setStudentsDirectory({
           loading: false,
           error: null,
@@ -242,13 +317,17 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
         });
       })
       .catch((error: Error) => {
+        if (requestId !== studentsRequestIdRef.current) {
+          return;
+        }
+
         setStudentsDirectory({
           loading: false,
           error: error.message,
           data: null,
         });
       });
-  }, [batch, canQuery, department, semester]);
+  }, [batch, canQuery, department, selectedSemesters, semester]);
 
   const summaryCards = useMemo<SummaryCard[]>(
     () => [
@@ -289,6 +368,8 @@ export const ExplorerProvider = ({ children }: { children: ReactNode }) => {
     setTopK,
     canQuery,
     summaryCards,
+    pageKpi,
+    setPageKpi,
     markPanelsLoading,
   };
 

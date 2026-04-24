@@ -1,16 +1,33 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useExplorer } from "../../_explorer/context";
 
 export default function ArrearsPage() {
-  const { arrears } = useExplorer();
+  const { arrears, setPageKpi } = useExplorer();
   const arrearsData = arrears.data;
   const totalArrears = useMemo(
     () =>
       arrearsData?.students.reduce((sum, item) => sum + item.arrears, 0) ?? 0,
     [arrearsData],
   );
+
+  useEffect(() => {
+    if (!arrearsData) {
+      setPageKpi(null);
+      return;
+    }
+    setPageKpi({
+      title: "Arrears Summary",
+      cards: [
+        { label: "1 Arrear", value: arrearsData.counts["1"] || 0 },
+        { label: "2 Arrears", value: arrearsData.counts["2"] || 0 },
+        { label: "3+ Arrears", value: (arrearsData.counts["3+"] || 0) + (arrearsData.counts["4"] || 0) + (arrearsData.counts["5"] || 0) },
+        { label: "Total Students", value: arrearsData.students.length }
+      ]
+    });
+    return () => setPageKpi(null);
+  }, [arrearsData, setPageKpi]);
 
   return (
     <div className="p-4 overflow-auto max-h-[calc(100vh-180px)] flex flex-col gap-4">

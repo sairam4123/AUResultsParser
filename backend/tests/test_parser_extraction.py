@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from backend.parser import extract_results_from_file
+from backend.parser import extract_results_from_file, scan_result_pdf_structure
 
 
 @dataclass
@@ -177,3 +177,50 @@ def test_extract_results_stops_at_next_semester_block(monkeypatch):
     assert payload is not None
     assert len(payload) == 1
     assert payload[0]["subjects"] == {"GE3151": "B", "MA3151": "C"}
+
+
+def test_scan_structure_suggests_top_publication_date(monkeypatch):
+    pages = [
+        FakePage(
+            text=(
+                "DATE OF PUBLICATION : 11-07-2023\n"
+                "Semester No. : 01\n"
+                "812823205001"
+            ),
+            table=[["812823205001", "STUDENT ONE"]],
+            page_number=1,
+        )
+    ]
+
+    monkeypatch.setattr("backend.parser.pdfplumber.open", lambda _file: FakePdf(pages))
+
+    payload = scan_result_pdf_structure("dummy.pdf")
+
+    assert payload["top_result_date"] == "2023-07-11"
+    assert payload["bottom_result_date"] == "2023-07-11"
+    assert payload["suggested_result_date"] == "2023-07-11"
+    assert payload["result_date_source"] == "top"
+
+
+def test_scan_structure_falls_back_to_bottom_date_when_top_is_placeholder(monkeypatch):
+    pages = [
+        FakePage(
+            text=(
+                "DATE OF PUBLICATION : DD-MM-YYYY\n"
+                "Semester No. : 01\n"
+                "812823205001\n"
+                "11-07-2023"
+            ),
+            table=[["812823205001", "STUDENT ONE"]],
+            page_number=1,
+        )
+    ]
+
+    monkeypatch.setattr("backend.parser.pdfplumber.open", lambda _file: FakePdf(pages))
+
+    payload = scan_result_pdf_structure("dummy.pdf")
+
+    assert payload["top_result_date"] is None
+    assert payload["bottom_result_date"] == "2023-07-11"
+    assert payload["suggested_result_date"] == "2023-07-11"
+    assert payload["result_date_source"] == "bottom"

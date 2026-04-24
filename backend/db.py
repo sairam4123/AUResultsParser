@@ -473,6 +473,39 @@ class SQLiteResultRepository:
             rows = conn.execute(query, params).fetchall()
             return [str(row["batch"]) for row in rows]
 
+    def get_semesters_by_batch(
+        self,
+        *,
+        department_code: int | None = None,
+    ) -> dict[str, list[int]]:
+        params: list[Any] = []
+        where: list[str] = []
+
+        if department_code is not None:
+            where.append("department_code = ?")
+            params.append(int(department_code))
+
+        query = "SELECT DISTINCT batch, semester_no FROM EndSemesterExam"
+        if where:
+            query += f" WHERE {' AND '.join(where)}"
+        query += " ORDER BY CAST(batch AS INTEGER) DESC, batch DESC, semester_no ASC"
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        mapping: dict[str, list[int]] = {}
+        for row in rows:
+            batch = str(row["batch"])
+            semester = int(row["semester_no"])
+            bucket = mapping.setdefault(batch, [])
+            if semester not in bucket:
+                bucket.append(semester)
+
+        for batch in mapping:
+            mapping[batch].sort()
+
+        return mapping
+
     def resolve_latest_batch(
         self, *, semester_no: int, department_code: int
     ) -> str | None:

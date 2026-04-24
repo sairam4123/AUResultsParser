@@ -17,6 +17,17 @@ export type StudentOption = {
   label: string;
 };
 
+export type SummaryCard = {
+  label: string;
+  value: number | string | null;
+  suffix?: string;
+};
+
+export type KpiPayload = {
+  title?: string;
+  cards: SummaryCard[];
+};
+
 export type ComparisonPoint = {
   value: number;
   diff: number;

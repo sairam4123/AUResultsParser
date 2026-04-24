@@ -7,6 +7,7 @@ export type MetaResponse = {
   departments: DepartmentOption[];
   semesters: number[];
   batches: string[];
+  semesters_by_batch: Record<string, number[]>;
 };
 
 export type SummaryResponse = {
@@ -413,11 +414,13 @@ export const api = {
     semester: number,
     department: string,
     batch: string | null,
+    regnos?: string | null,
   ) => {
     const search = new URLSearchParams({
       semester: String(semester),
       department,
     });
+    if (regnos) search.set("regnos", regnos);
     withBatch(search, batch);
     return getJson<SubjectSummaryResponse>(
       `/subject-summary?${search.toString()}`,

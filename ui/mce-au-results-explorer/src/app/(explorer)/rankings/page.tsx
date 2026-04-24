@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { api, type CgpaClassResponse } from "../../../lib/api";
+import { exportCgpaWorkbook } from "../../../lib/cgpaExcelExport";
 import { axisProps, gridProps } from "../../_explorer/chartTheme";
 import { useExplorer } from "../../_explorer/context";
 import { initialDataState, type DataState } from "../../_explorer/types";
@@ -55,18 +56,69 @@ export default function RankingsPage() {
     batch,
     selectedSemesters,
     topK,
+    setPageKpi,
   } = useExplorer();
   const [analytics, setAnalytics] =
     useState<DataState<RankingsAnalytics>>(initialDataState);
   const [cgpaClass, setCgpaClass] =
     useState<DataState<CgpaClassResponse>>(initialDataState);
+  const [excelExporting, setExcelExporting] = useState(false);
+  const [excelStatus, setExcelStatus] = useState<string | null>(null);
+  const [excelError, setExcelError] = useState<string | null>(null);
+
+  const rankingSemesters = useMemo(() => {
+    if (selectedSemesters.length > 0) {
+      return [...selectedSemesters].sort((a, b) => a - b);
+    }
+
+    if (semester > 0) {
+      return [semester];
+    }
+
+    return [] as number[];
+  }, [selectedSemesters, semester]);
 
   const rankingSemestersCsv = useMemo(() => {
-    if (selectedSemesters.length > 0) {
-      return [...selectedSemesters].sort((a, b) => a - b).join(",");
+    return rankingSemesters.join(",");
+  }, [rankingSemesters]);
+
+  const onExportExcel = async () => {
+    if (!canQuery || rankingSemesters.length === 0 || excelExporting) {
+      return;
     }
-    return String(semester);
-  }, [selectedSemesters, semester]);
+
+    setExcelExporting(true);
+    setExcelError(null);
+    setExcelStatus("Preparing class CGPA export...");
+
+    try {
+      const result = await exportCgpaWorkbook({
+        semesters: rankingSemesters,
+        department,
+        batch: batch || null,
+        onProgress: ({ completed, total }) => {
+          setExcelStatus(
+            `Collecting semester breakdowns for workbook (${completed}/${total})`,
+          );
+        },
+      });
+
+      if (result.failedRegnos.length > 0) {
+        setExcelStatus(
+          `Exported ${result.totalStudents} rows with ${result.failedRegnos.length} missing breakdown(s).`,
+        );
+      } else {
+        setExcelStatus(`Export complete for ${result.totalStudents} students.`);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to export workbook.";
+      setExcelError(message);
+      setExcelStatus(null);
+    } finally {
+      setExcelExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (!canQuery || semester <= 0) {
@@ -173,6 +225,50 @@ export default function RankingsPage() {
       active = false;
     };
   }, [batch, canQuery, department, rankingSemestersCsv, topK]);
+
+  useEffect(() => {
+    if (!canQuery) {
+      setPageKpi(null);
+      return;
+    }
+    
+    let active = true;
+    api.getCgpaClass({
+      semesters: rankingSemestersCsv,
+      department,
+      batch: batch || null,
+      sortBy: "cgpa"
+    })
+    .then((payload) => {
+      if (!active) return;
+      const cgpas = payload.rows
+        .map(r => r.cgpa)
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+      
+      const b1 = cgpas.filter(c => c < 2.5).length;
+      const b2 = cgpas.filter(c => c >= 2.5 && c < 6.5).length;
+      const b3 = cgpas.filter(c => c >= 6.5 && c < 8.5).length;
+      const b4 = cgpas.filter(c => c >= 8.5).length;
+      
+      setPageKpi({
+        title: "Rankings",
+        cards: [
+          { label: "< 2.5 CGPA", value: b1 },
+          { label: "2.5 - 6.5", value: b2 },
+          { label: "6.5 - 8.5", value: b3 },
+          { label: ">= 8.5", value: b4 }
+        ]
+      });
+    })
+    .catch(() => {
+      if (active) setPageKpi(null);
+    });
+
+    return () => { 
+      active = false; 
+      setPageKpi(null); 
+    };
+  }, [canQuery, department, batch, rankingSemestersCsv, setPageKpi]);
 
   const cgpaDistribution = useMemo(() => {
     if (!cgpaClass.data) {
@@ -374,14 +470,35 @@ export default function RankingsPage() {
       )}
 
       <section className="border border-[#dbe3ff] rounded-[14px] bg-[#f9fbff] p-4 flex flex-col gap-3">
-        <div>
-          <h3 className="m-0 text-[1rem] font-bold text-[var(--foreground)]">
-            Class CGPA Ranking
-          </h3>
-          <p className="m-0 text-[0.8rem] text-slate-500">
-            Combined ranking across selected semesters.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 className="m-0 text-[1rem] font-bold text-[var(--foreground)]">
+              Class CGPA Ranking
+            </h3>
+            <p className="m-0 text-[0.8rem] text-slate-500">
+              Combined ranking across selected semesters.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void onExportExcel()}
+            disabled={!canQuery || rankingSemesters.length === 0 || excelExporting}
+            className="min-h-[36px] rounded-[10px] border border-[#96a5e6]
+              bg-[#f1f4ff] text-[var(--foreground)] font-[650] px-3 text-[0.82rem]
+              transition-all hover:bg-[#e4eaff] hover:shadow-[0_3px_10px_rgba(48,64,160,0.13)]
+              disabled:opacity-55 disabled:cursor-not-allowed"
+          >
+            {excelExporting ? "Exporting Excel..." : "Export CGPA Excel"}
+          </button>
         </div>
+
+        {excelStatus && (
+          <p className="text-sm text-[var(--muted)] m-0">{excelStatus}</p>
+        )}
+        {excelError && (
+          <p className="text-sm text-red-700 font-semibold m-0">{excelError}</p>
+        )}
 
         {cgpaClass.loading && (
           <p className="text-sm text-[var(--muted)] m-0">

@@ -28,6 +28,7 @@ import {
   type CgpaBreakdownResponse,
   type StudentResponse,
 } from "../../../lib/api";
+import { exportStudentProfilePdf } from "../../../lib/studentPdfExport";
 import { axisProps, gridProps } from "../../_explorer/chartTheme";
 import { useExplorer } from "../../_explorer/context";
 import { type StudentOption } from "../../_explorer/types";
@@ -123,8 +124,15 @@ type RankTrendPoint = {
 // ── Page content ───────────────────────────────────────────
 
 function StudentPageContent() {
-  const { canQuery, semester, department, batch, meta, studentsDirectory } =
-    useExplorer();
+  const {
+    canQuery,
+    semester,
+    department,
+    batch,
+    selectedSemesters,
+    studentsDirectory,
+    setPageKpi,
+  } = useExplorer();
   const searchParams = useSearchParams();
   const [regnoInput, setRegnoInput] = useState<string>(
     () => searchParams.get("regno")?.trim() ?? "",
@@ -138,7 +146,25 @@ function StudentPageContent() {
     useState<DataState<CgpaBreakdownResponse>>(initialDataState);
   const [rankTrend, setRankTrend] =
     useState<DataState<RankTrendPoint[]>>(initialDataState);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const autoLoadedRegno = useRef<string | null>(null);
+  const sgpaCgpaChartRef = useRef<HTMLDivElement | null>(null);
+  const rankChartRef = useRef<HTMLDivElement | null>(null);
+  const arrearChartRef = useRef<HTMLDivElement | null>(null);
+
+  const exportSemesters = useMemo(() => {
+    if (selectedSemesters.length > 0) {
+      return [...selectedSemesters].sort((a, b) => a - b);
+    }
+
+    if (semester > 0) {
+      return [semester];
+    }
+
+    return [] as number[];
+  }, [selectedSemesters, semester]);
 
   const studentOptions = useMemo<StudentOption[]>(() => {
     if (!studentsDirectory.data) {
@@ -176,6 +202,8 @@ function StudentPageContent() {
     );
   }, [regnoInput, selectedStudent, studentOptions]);
 
+  const [cohortAverages, setCohortAverages] = useState<Record<number, number> | null>(null);
+
   const trendRows = useMemo(() => {
     if (!cgpaBreakdown.data) return [];
 
@@ -198,12 +226,13 @@ function StudentPageContent() {
       return {
         semester: row.semester,
         sgpa: row.totals.sgpa,
-        cumulativeCgpa,
-        arrears: row.totals.arrears,
-        cumulativeArrears,
-      };
-    });
-  }, [cgpaBreakdown.data]);
+      cohortSgpa: cohortAverages ? cohortAverages[row.semester] ?? null : null,
+      cumulativeCgpa,
+      arrears: row.totals.arrears,
+      cumulativeArrears,
+    };
+  });
+}, [cgpaBreakdown.data, cohortAverages]);
 
   const rankAxisMax = useMemo(() => {
     if (!rankTrend.data || rankTrend.data.length === 0) {
@@ -240,8 +269,8 @@ function StudentPageContent() {
       setRankTrend({ loading: true, error: null, data: null });
 
       const allSemestersAsc =
-        meta.data?.semesters.length && meta.data.semesters.length > 0
-          ? [...meta.data.semesters].sort((a, b) => a - b)
+        selectedSemesters.length > 0
+          ? [...selectedSemesters].sort((a, b) => a - b)
           : [semester];
       const semestersCsv = [...allSemestersAsc].sort((a, b) => b - a).join(",");
 
@@ -275,7 +304,7 @@ function StudentPageContent() {
         }),
       );
 
-      const [studentResult, cgpaResult, rankTrendResult] =
+      const [studentResult, cgpaResult, rankTrendResult, cohortResult] =
         await Promise.allSettled([
           api.getStudent(semester, department, batch || null, regno),
           api.getCgpaBreakdown({
@@ -285,6 +314,11 @@ function StudentPageContent() {
             regno,
           }),
           rankTrendPromise,
+          api.getCgpaClass({
+            semesters: semestersCsv,
+            department,
+            batch: batch || null,
+          }),
         ]);
 
       if (studentResult.status === "fulfilled") {
@@ -348,9 +382,90 @@ function StudentPageContent() {
           data: null,
         });
       }
+
+      if (cohortResult.status === "fulfilled" && cohortResult.value.rows) {
+        const semesterAvgs: Record<number, number> = {};
+        allSemestersAsc.forEach((sem) => {
+          let sum = 0;
+          let count = 0;
+          
+          cohortResult.value.rows.forEach((row) => {
+            const sgpa = row.semester_sgpa[sem.toString()];
+            // ignore outliers where sgpa < 2
+            if (typeof sgpa === 'number' && sgpa >= 2) {
+              sum += sgpa;
+              count++;
+            }
+          });
+          
+          if (count > 0) {
+            semesterAvgs[sem] = Number((sum / count).toFixed(2));
+          }
+        });
+        setCohortAverages(semesterAvgs);
+      } else {
+        setCohortAverages(null);
+      }
     },
-    [batch, canQuery, department, meta.data?.semesters, semester],
+    [batch, canQuery, department, selectedSemesters, semester],
   );
+
+  const onExportPdf = useCallback(async () => {
+    if (
+      !canQuery ||
+      exportSemesters.length === 0 ||
+      pdfExporting ||
+      !student.data ||
+      !cgpaBreakdown.data
+    ) {
+      return;
+    }
+
+    setPdfExporting(true);
+    setPdfError(null);
+    setPdfStatus("Capturing charts for PDF...");
+
+    try {
+      const result = await exportStudentProfilePdf({
+        student: student.data.student,
+        cgpaBreakdown: cgpaBreakdown.data,
+        selectedSemesters: exportSemesters,
+        department,
+        batch: batch || null,
+        chartTargets: [
+          {
+            title: "SGPA vs Cumulative CGPA",
+            element: sgpaCgpaChartRef.current,
+          },
+          {
+            title: "SGPA Rank vs CGPA Rank",
+            element: rankChartRef.current,
+          },
+          {
+            title: "Arrear History",
+            element: arrearChartRef.current,
+          },
+        ],
+      });
+
+      setPdfStatus(`Export complete: ${result.fileName}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to export student PDF.";
+      setPdfError(message);
+      setPdfStatus(null);
+    } finally {
+      setPdfExporting(false);
+    }
+  }, [
+    batch,
+    canQuery,
+    cgpaBreakdown.data,
+    department,
+    exportSemesters,
+    pdfExporting,
+    student.data,
+  ]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -371,6 +486,24 @@ function StudentPageContent() {
     autoLoadedRegno.current = regnoFromQuery;
     void lookupStudent(regnoFromQuery);
   }, [canQuery, lookupStudent, searchParams]);
+
+  useEffect(() => {
+    if (!student.data) {
+      setPageKpi(null);
+      return;
+    }
+    const stu = student.data.student;
+    setPageKpi({
+      title: "Student Overview",
+      cards: [
+        { label: "Sem Rank", value: stu.rank ?? "N/A" },
+        { label: "Cur SGPA", value: stu.sgpa.toFixed(2) },
+        { label: "Cur CGPA", value: cgpaBreakdown.data?.overall.cgpa ? cgpaBreakdown.data.overall.cgpa.toFixed(2) : "N/A" },
+        { label: "No. of Arrears", value: cgpaBreakdown.data?.overall.arrears ?? "N/A" },
+      ]
+    });
+    return () => setPageKpi(null);
+  }, [student.data, cgpaBreakdown.data, setPageKpi]);
 
   return (
     <div className="p-4 overflow-auto max-h-[calc(100vh-180px)] flex flex-col gap-4">
@@ -437,9 +570,24 @@ function StudentPageContent() {
           <div className="mb-1 border border-[#dbe3ff] rounded-[14px] bg-[#f7f9ff] p-4 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="m-0 mb-1 text-[1.1rem] font-bold text-[var(--foreground)]">
-                  {student.data.student.name}
-                </h3>
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <h3 className="m-0 text-[1.1rem] font-bold text-[var(--foreground)]">
+                    {student.data.student.name}
+                  </h3>
+                  {cohortAverages && cohortAverages[semester] !== undefined && (
+                    <span
+                      title={`Cohort Average SGPA: ${cohortAverages[semester]}`}
+                      className={`px-2 py-0.5 rounded-full text-[0.7rem] font-[750] tracking-wide ${
+                        student.data.student.sgpa >= cohortAverages[semester]
+                          ? "bg-green-100 text-green-800 border border-green-200"
+                          : "bg-red-100 text-red-800 border border-red-200"
+                      }`}
+                    >
+                      {student.data.student.sgpa >= cohortAverages[semester] ? "▲" : "▼"}{" "}
+                      {Math.abs(student.data.student.sgpa - cohortAverages[semester]).toFixed(2)} vs Avg
+                    </span>
+                  )}
+                </div>
                 <p className="m-0 text-[var(--muted)] text-sm">
                   {student.data.student.regno} • Current SGPA{" "}
                   {fmtNumber(student.data.student.sgpa)} • Rank{" "}
@@ -485,7 +633,9 @@ function StudentPageContent() {
           {trendRows.length > 0 && (
             <ResultBlock title="SGPA / CGPA and Arrear Trends">
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
-                <div className="border border-[#dbe3ff] rounded-[10px] p-2 bg-[#ffffff]">
+                <div
+                  className="border border-[#dbe3ff] rounded-[10px] p-2 bg-[#ffffff]"
+                >
                   <p className="m-0 px-2 pt-1 text-[0.78rem] font-semibold text-[var(--muted)]">
                     SGPA vs Cumulative CGPA
                   </p>
@@ -518,6 +668,16 @@ function StudentPageContent() {
                         />
                         <Line
                           type="monotone"
+                          dataKey="cohortSgpa"
+                          name="Cohort Avg SGPA"
+                          stroke="#15803d"
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          dot={{ r: 2 }}
+                          connectNulls
+                        />
+                        <Line
+                          type="monotone"
                           dataKey="cumulativeCgpa"
                           name="Cumulative CGPA"
                           stroke="#e55381"
@@ -530,7 +690,9 @@ function StudentPageContent() {
                   </div>
                 </div>
 
-                <div className="border border-[#dbe3ff] rounded-[10px] p-2 bg-[#ffffff]">
+                <div
+                  className="border border-[#dbe3ff] rounded-[10px] p-2 bg-[#ffffff]"
+                >
                   <p className="m-0 px-2 pt-1 text-[0.78rem] font-semibold text-[var(--muted)]">
                     SGPA Rank vs CGPA Rank
                   </p>
@@ -598,7 +760,9 @@ function StudentPageContent() {
                   </div>
                 </div>
 
-                <div className="border border-[#dbe3ff] rounded-[10px] p-2 bg-[#ffffff]">
+                <div
+                  className="border border-[#dbe3ff] rounded-[10px] p-2 bg-[#ffffff]"
+                >
                   <p className="m-0 px-2 pt-1 text-[0.78rem] font-semibold text-[var(--muted)]">
                     Arrear History
                   </p>
@@ -664,6 +828,32 @@ function StudentPageContent() {
 
           {/* CGPA Breakdown */}
           <ResultBlock title="SGPA and CGPA Calculation Breakdown">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-slate-600 m-0">
+                Export selected-semester PDF report for this student with charts.
+              </p>
+              <button
+                type="button"
+                onClick={() => void onExportPdf()}
+                disabled={
+                  !canQuery ||
+                  exportSemesters.length === 0 ||
+                  pdfExporting ||
+                  !student.data ||
+                  !cgpaBreakdown.data
+                }
+                className="min-h-[36px] rounded-[10px] border border-[#96a5e6]
+                  bg-[#f1f4ff] text-[var(--foreground)] font-[650] px-3 text-[0.82rem]
+                  transition-all hover:bg-[#e4eaff] hover:shadow-[0_3px_10px_rgba(48,64,160,0.13)]
+                  disabled:opacity-55 disabled:cursor-not-allowed"
+              >
+                {pdfExporting ? "Generating PDF..." : "Export Student PDF"}
+              </button>
+            </div>
+
+            {pdfStatus && <Notice>{pdfStatus}</Notice>}
+            {pdfError && <Notice error>{pdfError}</Notice>}
+
             {cgpaBreakdown.loading && (
               <Notice>Loading CGPA calculations...</Notice>
             )}
@@ -794,6 +984,124 @@ function StudentPageContent() {
             )}
           </ResultBlock>
         </>
+      )}
+
+      {/* Hidden wide charts strictly dedicated for high-quality SVG extraction on PDF generation */}
+      {student.data && trendRows.length > 0 && (
+        <div
+          aria-hidden="true"
+          className="absolute top-[-9999px] left-[-9999px] w-[1200px] flex flex-col pointer-events-none"
+        >
+          <div ref={sgpaCgpaChartRef} className="w-[1200px] h-[350px] bg-white p-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={trendRows}
+                margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid {...gridProps} />
+                <XAxis
+                  dataKey="semester"
+                  {...axisProps}
+                  tickFormatter={(value) => `S${value}`}
+                />
+                <YAxis {...axisProps} domain={[0, 10]} />
+                <Line
+                  type="monotone"
+                  dataKey="sgpa"
+                  name="SGPA"
+                  stroke="#3040a0"
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+                <Line
+                  type="monotone"
+                  dataKey="cumulativeCgpa"
+                  name="Cumulative CGPA"
+                  stroke="#e55381"
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div ref={rankChartRef} className="w-[1200px] h-[350px] bg-white p-4">
+            {!rankTrend.loading && rankTrend.data && rankTrend.data.length > 0 && (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={rankTrend.data}
+                  margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid {...gridProps} />
+                  <XAxis
+                    dataKey="semester"
+                    {...axisProps}
+                    tickFormatter={(value) => `S${value}`}
+                  />
+                  <YAxis
+                    {...axisProps}
+                    allowDecimals={false}
+                    reversed
+                    domain={[rankAxisMax, 1]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="sgpaRank"
+                    name="SGPA Rank"
+                    stroke="#3040a0"
+                    strokeWidth={2.5}
+                    dot={{ r: 3 }}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="cgpaRank"
+                    name="CGPA Rank"
+                    stroke="#e55381"
+                    strokeWidth={2.5}
+                    dot={{ r: 3 }}
+                    connectNulls
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div ref={arrearChartRef} className="w-[1200px] h-[350px] bg-white p-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={trendRows}
+                margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid {...gridProps} />
+                <XAxis
+                  dataKey="semester"
+                  {...axisProps}
+                  tickFormatter={(value) => `S${value}`}
+                />
+                <YAxis {...axisProps} allowDecimals={false} />
+                <Area
+                  type="monotone"
+                  dataKey="arrears"
+                  name="Semester Arrears"
+                  stroke="#f97316"
+                  fill="#f9731630"
+                  strokeWidth={2}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="cumulativeArrears"
+                  name="Cumulative Arrears"
+                  stroke="#be123c"
+                  fill="#be123c20"
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       )}
     </div>
   );

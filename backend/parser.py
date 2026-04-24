@@ -1,5 +1,6 @@
 import pdfplumber
 import re
+from datetime import date
 
 from backend.constants import calculate_sgpa, get_subject_name, grade_mapping
 
@@ -11,11 +12,63 @@ SEMESTER_LINE_REGEX = re.compile(
     r"(Semester|Sem)\s+(No)?\.*\s*:\s*(?P<sem>\d+)",
     re.IGNORECASE,
 )
+PUBLICATION_DATE_REGEX = re.compile(
+    r"DATE\s+OF\s+PUBLICATION\s*:?\s*(?P<value>[^\n\r]*)",
+    re.IGNORECASE,
+)
+DAY_MONTH_YEAR_REGEX = re.compile(
+    r"\b(?P<day>\d{1,2})[./-](?P<month>\d{1,2})[./-](?P<year>\d{2,4})\b"
+)
+
+
+def _parse_first_day_month_year(value: str) -> str | None:
+    for match in DAY_MONTH_YEAR_REGEX.finditer(value):
+        day = int(match.group("day"))
+        month = int(match.group("month"))
+        year = int(match.group("year"))
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _extract_top_publication_date(lines: list[str]) -> str | None:
+    for index, line in enumerate(lines):
+        match = PUBLICATION_DATE_REGEX.search(line)
+        if not match:
+            continue
+
+        inline_date = _parse_first_day_month_year(match.group("value"))
+        if inline_date:
+            return inline_date
+
+        for offset in (1, 2):
+            next_index = index + offset
+            if next_index >= len(lines):
+                break
+            nearby_date = _parse_first_day_month_year(lines[next_index])
+            if nearby_date:
+                return nearby_date
+
+    return None
+
+
+def _extract_footer_date(lines: list[str]) -> str | None:
+    for line in reversed(lines[-8:]):
+        parsed = _parse_first_day_month_year(line)
+        if parsed:
+            return parsed
+    return None
 
 
 def scan_result_pdf_structure(file: str) -> dict[str, object]:
     batches_by_sem: dict[int, set[str]] = {}
     pages_by_sem_batch: dict[tuple[int, str], set[int]] = {}
+    top_published_date: str | None = None
+    footer_published_date: str | None = None
 
     with pdfplumber.open(file) as pdf:
         current_sem: int | None = None
@@ -23,7 +76,14 @@ def scan_result_pdf_structure(file: str) -> dict[str, object]:
         for page in pdf.pages:
             text = page.extract_text()
             if text:
-                for line in text.split("\n"):
+                lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+                if top_published_date is None:
+                    top_published_date = _extract_top_publication_date(lines)
+                if footer_published_date is None:
+                    footer_published_date = _extract_footer_date(lines)
+
+                for line in lines:
                     match = SEMESTER_LINE_REGEX.search(line)
                     if match:
                         current_sem = int(match.group("sem") or "0")
@@ -70,10 +130,21 @@ def scan_result_pdf_structure(file: str) -> dict[str, object]:
         for (sem, batch_year), page_numbers in sorted(pages_by_sem_batch.items())
     ]
 
+    suggested_result_date = top_published_date or footer_published_date
+    result_date_source = (
+        "top"
+        if top_published_date
+        else ("bottom" if footer_published_date else None)
+    )
+
     return {
         "semesters": semesters_found,
         "batches_by_semester": batches_payload,
         "pages_by_semester_batch": page_links_payload,
+        "top_result_date": top_published_date,
+        "bottom_result_date": footer_published_date,
+        "suggested_result_date": suggested_result_date,
+        "result_date_source": result_date_source,
     }
 
 

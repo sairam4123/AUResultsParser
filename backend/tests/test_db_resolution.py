@@ -30,6 +30,8 @@ def _insert_event(
         semester_no=sem_no,
         department_code=205,
         batch="2023",
+
+
     )
     return repo.insert_result_event(
         exam_id=exam_id,
@@ -350,3 +352,66 @@ def test_invalid_state_and_grade_are_rejected(repo: SQLiteResultRepository):
             state="PROVISIONAL",
             grade="INVALID",
         )
+
+
+def test_get_semesters_by_batch_returns_sorted_semesters_per_batch(
+    repo: SQLiteResultRepository,
+):
+    first_exam = repo.insert_exam(
+        name="ND2024",
+        result_date="2024-01-20",
+        semester_no=1,
+        department_code=205,
+        batch="2023",
+    )
+    repo.insert_result_event(
+        exam_id=first_exam,
+        regno="812823205001",
+        student_name="Student One",
+        subject_code="GE3151",
+        sem_no=1,
+        sem_name="23-ODD",
+        state="PROVISIONAL",
+        grade="A",
+    )
+
+    second_exam = repo.insert_exam(
+        name="AM2025",
+        result_date="2025-07-18",
+        semester_no=3,
+        department_code=205,
+        batch="2023",
+    )
+    repo.insert_result_event(
+        exam_id=second_exam,
+        regno="812823205001",
+        student_name="Student One",
+        subject_code="CS3351",
+        sem_no=3,
+        sem_name="24-EVEN",
+        state="PROVISIONAL",
+        grade="B+",
+    )
+
+    third_exam = repo.insert_exam(
+        name="ND2025",
+        result_date="2025-12-20",
+        semester_no=5,
+        department_code=205,
+        batch="2022",
+    )
+    repo.insert_result_event(
+        exam_id=third_exam,
+        regno="812822205001",
+        student_name="Student Two",
+        subject_code="CS3591",
+        sem_no=5,
+        sem_name="25-ODD",
+        state="PROVISIONAL",
+        grade="A",
+    )
+
+    mapping = repo.get_semesters_by_batch()
+
+    assert mapping["2023"] == [1, 3]
+    assert mapping["2022"] == [5]

@@ -869,6 +869,7 @@ def meta_v2():
         "departments": departments,
         "semesters": repository.get_available_semesters(),
         "batches": repository.get_available_batches(),
+        "semesters_by_batch": repository.get_semesters_by_batch(),
     }
 
 

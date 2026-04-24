@@ -27,6 +27,23 @@ def infer_department_from_filename(pdf_path: Path) -> str | None:
     return match.group(1)
 
 
+def _derive_exam_name_default(pdf_path: Path) -> str:
+    stem = pdf_path.stem
+    normalized = stem.upper()
+    if normalized.endswith("_R") or normalized.endswith("_C"):
+        return stem[:-2]
+    return stem
+
+
+def _infer_state_default_from_filename(pdf_path: Path) -> str:
+    normalized = pdf_path.stem.upper()
+    if normalized.endswith("_R"):
+        return "REVAL"
+    if normalized.endswith("_C"):
+        return "CHALLENGE"
+    return "PROVISIONAL"
+
+
 def derive_sem_name(
     *,
     pdf_path: Path,
@@ -163,6 +180,71 @@ def _normalize_date(date_str: str) -> str:
     raise ValueError("Invalid date format. Use YYYY-MM-DD or DD-MM-YYYY.")
 
 
+def _select_suggested_result_date(
+    scan_payload: dict[str, Any], state: str
+) -> tuple[str | None, str | None]:
+    def _normalize(value: Any) -> str | None:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    top_date = _normalize(scan_payload.get("top_result_date"))
+    bottom_date = _normalize(scan_payload.get("bottom_result_date"))
+
+    legacy_suggested = _normalize(scan_payload.get("suggested_result_date"))
+    legacy_source = str(scan_payload.get("result_date_source") or "").strip().lower()
+    if top_date is None and legacy_source == "top":
+        top_date = legacy_suggested
+    if bottom_date is None and legacy_source == "bottom":
+        bottom_date = legacy_suggested
+
+    if state in {"REVAL", "CHALLENGE"}:
+        if bottom_date:
+            return bottom_date, "bottom"
+        if top_date:
+            return top_date, "top"
+    else:
+        if top_date:
+            return top_date, "top"
+        if bottom_date:
+            return bottom_date, "bottom"
+
+    return None, None
+
+
+def _prompt_result_date(scan_payload: dict[str, Any], state: str) -> str:
+    suggested_date, source = _select_suggested_result_date(scan_payload, state)
+
+    if suggested_date:
+        source_label = "top" if source == "top" else "bottom"
+        print(f"\nSuggested published date from {source_label} of PDF: {suggested_date}")
+    else:
+        print(
+            "\nCould not read a published date from the PDF. "
+            "Please enter the result date manually."
+        )
+
+    while True:
+        if suggested_date:
+            candidate = _prompt(
+                "Result published date (YYYY-MM-DD | DD-MM-YYYY)",
+                suggested_date,
+            )
+        else:
+            candidate = _prompt(
+                "Result published date (YYYY-MM-DD | DD-MM-YYYY)",
+                None,
+            )
+            if not candidate.strip():
+                print("Result published date is required.")
+                continue
+
+        try:
+            return _normalize_date(candidate)
+        except ValueError as exc:
+            print(exc)
+
+
 def _prompt_yes_no(message: str, default_yes: bool = True) -> bool:
     default_text = "Y/n" if default_yes else "y/N"
     value = input(f"{message} ({default_text}): ").strip().lower()
@@ -259,11 +341,7 @@ def _prompt_semester_limit(scan_payload: dict[str, Any]) -> set[int] | None:
         return None
 
     available = sorted(
-        {
-            int(str(item))
-            for item in semesters
-            if str(item).strip().isdigit()
-        }
+        {int(str(item)) for item in semesters if str(item).strip().isdigit()}
     )
     if not available:
         return None
@@ -316,13 +394,12 @@ def run_interactive() -> int:
     _print_discovered_structure(scan_payload)
 
     department_default = infer_department_from_filename(pdf_path) or "205"
+    exam_name_default = _derive_exam_name_default(pdf_path)
+    state_default = _infer_state_default_from_filename(pdf_path)
     department = _prompt("Department code/name (e.g., 205 or IT)", department_default)
-    exam_name = _prompt("Exam name", pdf_path.stem)
-    result_date = _prompt(
-        "Result published date (YYYY-MM-DD | DD-MM-YYYY)", date.today().isoformat()
-    )
-    result_date = _normalize_date(result_date)
-    state = _validate_state(_prompt("Result state", "PROVISIONAL"))
+    exam_name = _prompt("Exam name", exam_name_default)
+    state = _validate_state(_prompt("Result state", state_default))
+    result_date = _prompt_result_date(scan_payload, state)
     year_format = _prompt("sem_name year format (yy or yyyy)", "yy").lower()
     if year_format not in {"yy", "yyyy"}:
         year_format = "yy"

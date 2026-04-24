@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState, useEffect, useRef } from "react";
 import Select, {
   components,
   type MultiValue,
@@ -122,6 +122,7 @@ export const ExplorerShell = ({ children }: { children: ReactNode }) => {
   const {
     meta,
     summaryCards,
+    pageKpi,
     studentsDirectory,
     department,
     setDepartment,
@@ -135,11 +136,43 @@ export const ExplorerShell = ({ children }: { children: ReactNode }) => {
   } = useExplorer();
   const pathname = usePathname();
   const router = useRouter();
-  const [lookupStudent, setLookupStudent] = useState<StudentOption | null>(
-    null,
-  );
+  const [lookupStudent, setLookupStudent] = useState<StudentOption | null>(null);
   const [lookupInput, setLookupInput] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarKpiCollapsed, setSidebarKpiCollapsed] = useState(false);
+  const isKpiInitialMount = useRef(true);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("au-explorer-kpi-collapsed");
+      if (stored !== null) {
+        setSidebarKpiCollapsed(stored === "true");
+      } else {
+        const defaultCollapsed = ["/subjects", "/cgpa", "/comparisons"].includes(pathname);
+        setSidebarKpiCollapsed(defaultCollapsed);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (isKpiInitialMount.current) {
+      isKpiInitialMount.current = false;
+      return;
+    }
+    if (pathname === "/student") {
+      setSidebarKpiCollapsed(false);
+      localStorage.setItem("au-explorer-kpi-collapsed", "false");
+    }
+  }, [pathname]);
+
+  const toggleKpiCollapse = () => {
+    const next = !sidebarKpiCollapsed;
+    setSidebarKpiCollapsed(next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("au-explorer-kpi-collapsed", String(next));
+    }
+  };
 
   const activeTabLabel = useMemo(
     () => tabs.find((tab) => tab.href === pathname)?.label ?? "Overview",
@@ -159,12 +192,23 @@ export const ExplorerShell = ({ children }: { children: ReactNode }) => {
     [meta.data?.departments],
   );
 
+  const availableSemesters = useMemo<number[]>(() => {
+    const allSemesters = meta.data?.semesters ?? [];
+    const normalizedBatch = batch.trim();
+    if (!normalizedBatch) {
+      return allSemesters;
+    }
+
+    const mapped = meta.data?.semesters_by_batch?.[normalizedBatch] ?? [];
+    return mapped.length > 0 ? mapped : allSemesters;
+  }, [batch, meta.data?.semesters, meta.data?.semesters_by_batch]);
+
   const semesterOptions = useMemo<NumberOption[]>(
     () =>
-      [...(meta.data?.semesters ?? [])]
+      [...availableSemesters]
         .sort((a, b) => b - a)
         .map((item) => ({ value: item, label: `Semester ${item}` })),
-    [meta.data?.semesters],
+    [availableSemesters],
   );
 
   const batchOptions = useMemo<StringOption[]>(
@@ -267,10 +311,14 @@ export const ExplorerShell = ({ children }: { children: ReactNode }) => {
     <main className="min-h-screen w-full">
       {/* Three-column layout */}
       <div
-        className={`grid min-h-screen items-stretch ${
+        className={`grid min-h-screen items-stretch transition-[grid-template-columns] duration-300 ease-in-out ${
           sidebarCollapsed
-            ? "grid-cols-[72px_minmax(0,1fr)_minmax(300px,360px)]"
-            : "grid-cols-[minmax(88px,268px)_minmax(0,1fr)_minmax(300px,360px)]"
+            ? sidebarKpiCollapsed
+              ? "grid-cols-[72px_minmax(0,1fr)_48px]"
+              : "grid-cols-[72px_minmax(0,1fr)_minmax(300px,360px)]"
+            : sidebarKpiCollapsed
+              ? "grid-cols-[minmax(88px,268px)_minmax(0,1fr)_48px]"
+              : "grid-cols-[minmax(88px,268px)_minmax(0,1fr)_minmax(300px,360px)]"
         }`}
       >
         {/* ── Left Sidebar ─────────────────────────────── */}
@@ -417,6 +465,7 @@ export const ExplorerShell = ({ children }: { children: ReactNode }) => {
                   }}
                   options={semesterOptions}
                   isMulti
+                  hideSelectedOptions={false}
                   closeMenuOnSelect={false}
                   isSearchable={false}
                   components={semesterSelectComponents}
@@ -523,37 +572,59 @@ export const ExplorerShell = ({ children }: { children: ReactNode }) => {
         </section>
 
         <aside
-          className="sticky top-0 flex flex-col gap-3 max-h-screen min-h-screen overflow-auto
+          className={`sticky top-0 flex flex-col gap-3 max-h-screen min-h-screen
             rounded-l-[18px] border border-r-0 border-[var(--panel-border)]
             bg-[var(--card)] backdrop-blur-sm shadow-[0_8px_24px_rgba(22,50,99,0.09)]
-            p-4"
+            transition-all duration-300 ease-in-out px-3.5 py-4 ${
+              sidebarKpiCollapsed ? "items-center overflow-hidden" : "overflow-auto"
+            }`}
         >
-          <header>
-            <p className="m-0 text-[0.68rem] uppercase tracking-[0.08em] text-[var(--muted)] font-bold">
-              KPI Panel
-            </p>
-            <h2 className="m-0 text-[1.15rem] font-[750] text-[var(--foreground)]">
-              Summary
-            </h2>
-          </header>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            {summaryCards.map((card, index) => (
-              <article
-                key={card.label}
-                style={{ borderColor: cardTone[index % cardTone.length] }}
-                className="border-2 rounded-[14px] bg-[#f9fbff] px-3 py-3 flex flex-col gap-1 min-h-[92px]"
-              >
-                <p className="m-0 text-[0.66rem] uppercase tracking-[0.07em] text-[var(--muted)] font-[650]">
-                  {card.label}
+          <div className="flex items-center justify-between w-full">
+            {!sidebarKpiCollapsed && (
+              <header className="flex-1">
+                <p className="m-0 text-[0.68rem] uppercase tracking-[0.08em] text-[var(--muted)] font-bold">
+                  KPI Panel
                 </p>
-                <h3 className="m-0 text-[1.25rem] font-[750] leading-tight text-[var(--foreground)]">
-                  {fmtNumber(card.value)}
-                  {card.suffix ?? ""}
-                </h3>
-              </article>
-            ))}
+                <h2 className="m-0 text-[1.15rem] font-[750] text-[var(--foreground)] truncate">
+                  {pageKpi?.title || "Summary"}
+                </h2>
+              </header>
+            )}
+            
+            <button
+              type="button"
+              onClick={toggleKpiCollapse}
+              aria-label={sidebarKpiCollapsed ? "Expand KPI Panel" : "Collapse KPI Panel"}
+              title={sidebarKpiCollapsed ? "Expand KPI Panel" : "Collapse KPI Panel"}
+              className={`min-h-[32px] rounded-[10px] border border-[#96a5e6]
+                bg-[#f1f4ff] text-[#1d2d7a] text-[0.72rem] font-bold uppercase tracking-[0.04em]
+                px-2 cursor-pointer transition-colors hover:bg-[#e4eaff] hover:border-[#7f8dd6] ${
+                  sidebarKpiCollapsed ? "w-full [writing-mode:vertical-rl] rotate-180 py-4" : "shrink-0"
+                }`}
+            >
+              {sidebarKpiCollapsed ? "KPI" : "Wrap"}
+            </button>
           </div>
+
+          {!sidebarKpiCollapsed && (
+            <div className="grid grid-cols-2 gap-2.5">
+              {(pageKpi?.cards || summaryCards).map((card, index) => (
+                <article
+                  key={card.label}
+                  style={{ borderColor: cardTone[index % cardTone.length] }}
+                  className="border-2 rounded-[14px] bg-[#f9fbff] px-3 py-3 flex flex-col gap-1 min-h-[92px]"
+                >
+                  <p className="m-0 text-[0.66rem] uppercase tracking-[0.07em] text-[var(--muted)] font-[650] break-words">
+                    {card.label}
+                  </p>
+                  <h3 className="m-0 text-[1.25rem] font-[750] leading-tight text-[var(--foreground)] break-words">
+                    {typeof card.value === 'number' ? fmtNumber(card.value) : card.value}
+                    {card.suffix ?? ""}
+                  </h3>
+                </article>
+              ))}
+            </div>
+          )}
 
           {studentsDirectory.error && (
             <p className="text-sm font-semibold text-red-700 m-0">

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type FormEvent, useMemo, useState } from "react";
+import { Fragment, type FormEvent, useEffect, useMemo, useState } from "react";
 import Select, { type MultiValue } from "react-select";
 import {
   CartesianGrid,
@@ -16,10 +16,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  api,
-  type CgpaBreakdownResponse,
-} from "../../../lib/api";
+import { api, type CgpaBreakdownResponse } from "../../../lib/api";
 import { axisProps, CHART_COLORS, gridProps } from "../../_explorer/chartTheme";
 import { useExplorer } from "../../_explorer/context";
 import {
@@ -86,8 +83,12 @@ const THead = ({ cols }: { cols: string[] }) => (
   </thead>
 );
 
-const toTrendProfile = (payload: CgpaBreakdownResponse): StudentTrendProfile => {
-  const semesters = [...payload.semesters].sort((a, b) => a.semester - b.semester);
+const toTrendProfile = (
+  payload: CgpaBreakdownResponse,
+): StudentTrendProfile => {
+  const semesters = [...payload.semesters].sort(
+    (a, b) => a.semester - b.semester,
+  );
   let cumulativeCredits = 0;
   let cumulativeGradePoints = 0;
 
@@ -110,7 +111,9 @@ const toTrendProfile = (payload: CgpaBreakdownResponse): StudentTrendProfile => 
 
   const sgpas = trend
     .map((item) => item.sgpa)
-    .filter((value): value is number => value != null && Number.isFinite(value));
+    .filter(
+      (value): value is number => value != null && Number.isFinite(value),
+    );
 
   const avgSgpa =
     sgpas.length > 0
@@ -121,7 +124,8 @@ const toTrendProfile = (payload: CgpaBreakdownResponse): StudentTrendProfile => 
   const mean = avgSgpa;
   const variance =
     sgpas.length > 1
-      ? sgpas.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (sgpas.length - 1)
+      ? sgpas.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+        (sgpas.length - 1)
       : 0;
   const stdDev = Math.sqrt(variance);
 
@@ -134,7 +138,10 @@ const toTrendProfile = (payload: CgpaBreakdownResponse): StudentTrendProfile => 
       avgSgpa,
       bestSgpa,
       consistency: Math.max(0, Number((10 - stdDev * 2).toFixed(2))),
-      arrearControl: Math.max(0, Number((10 - payload.overall.arrears).toFixed(2))),
+      arrearControl: Math.max(
+        0,
+        Number((10 - payload.overall.arrears).toFixed(2)),
+      ),
     },
   };
 };
@@ -142,6 +149,7 @@ const toTrendProfile = (payload: CgpaBreakdownResponse): StudentTrendProfile => 
 const toSelectedSemesterComparisonStudent = (
   payload: CgpaBreakdownResponse,
   selectedSemesters: number[],
+  rank: number | null,
 ) => {
   const allowedSemesters =
     selectedSemesters.length > 0 ? new Set(selectedSemesters) : null;
@@ -152,19 +160,29 @@ const toSelectedSemesterComparisonStudent = (
 
   const sgpas = scopedSemesters
     .map((item) => item.totals.sgpa)
-    .filter((value): value is number => value != null && Number.isFinite(value));
+    .filter(
+      (value): value is number => value != null && Number.isFinite(value),
+    );
 
   const averageSgpa =
     sgpas.length > 0
-      ? Number((sgpas.reduce((sum, value) => sum + value, 0) / sgpas.length).toFixed(2))
+      ? Number(
+          (sgpas.reduce((sum, value) => sum + value, 0) / sgpas.length).toFixed(
+            2,
+          ),
+        )
       : 0;
 
   return {
     regno: payload.regno,
     name: payload.name,
     sgpa: averageSgpa,
-    rank: null,
-    arrears: scopedSemesters.reduce((sum, item) => sum + item.totals.arrears, 0),
+    cgpa: payload.overall.cgpa,
+    rank,
+    arrears: scopedSemesters.reduce(
+      (sum, item) => sum + item.totals.arrears,
+      0,
+    ),
     subjects: scopedSemesters.flatMap((sem) =>
       sem.subjects.map((subject) => ({
         code: subject.code,
@@ -186,14 +204,17 @@ export default function ComparisonsPage() {
     studentsDirectory,
     meta,
     selectedSemesters,
+    setPageKpi,
   } = useExplorer();
   const [selectedStudents, setSelectedStudents] = useState<StudentOption[]>([]);
-  const [subjectComparison, setSubjectComparison] = useState<DataState<SubjectComparisonTable>>(
-    initialDataState,
-  );
-  const [trendProfiles, setTrendProfiles] = useState<DataState<StudentTrendProfile[]>>(
-    initialDataState,
-  );
+  const [subjectComparison, setSubjectComparison] =
+    useState<DataState<SubjectComparisonTable>>(initialDataState);
+  const [trendProfiles, setTrendProfiles] =
+    useState<DataState<StudentTrendProfile[]>>(initialDataState);
+
+  useEffect(() => {
+    return () => setPageKpi(null);
+  }, [setPageKpi]);
 
   const studentOptions = useMemo<StudentOption[]>(() => {
     if (!studentsDirectory.data) return [];
@@ -230,44 +251,70 @@ export default function ComparisonsPage() {
     setSubjectComparison({ loading: true, error: null, data: null });
     setTrendProfiles({ loading: true, error: null, data: null });
 
+    const availableSemesters =
+      batch && meta.data?.semesters_by_batch?.[batch]
+        ? meta.data.semesters_by_batch[batch]
+        : (meta.data?.semesters ?? []);
+
     const allSemesterCsv =
-      meta.data?.semesters && meta.data.semesters.length > 0
-        ? [...meta.data.semesters].sort((a, b) => a - b).join(",")
+      availableSemesters.length > 0
+        ? [...availableSemesters].sort((a, b) => a - b).join(",")
         : selectedSemesters.length > 0
           ? [...selectedSemesters].sort((a, b) => a - b).join(",")
           : String(semester);
 
+    const targetSemForRank =
+      selectedSemesters.length > 0 ? Math.max(...selectedSemesters) : semester;
+
     const settled = await Promise.allSettled(
       selectedStudents.map((item) =>
-        api.getCgpaBreakdown({
-          semesters: allSemesterCsv,
-          department,
-          batch: batch || null,
-          regno: item.value,
-        }),
+        Promise.all([
+          api.getCgpaBreakdown({
+            semesters: allSemesterCsv,
+            department,
+            batch: batch || null,
+            regno: item.value,
+          }),
+          api
+            .getStudent(targetSemForRank, department, batch || null, item.value)
+            .catch(() => null),
+        ]),
       ),
     );
 
-    const students: ReturnType<typeof toSelectedSemesterComparisonStudent>[] = [];
+    const students: ReturnType<typeof toSelectedSemesterComparisonStudent>[] =
+      [];
     const profiles: StudentTrendProfile[] = [];
     const failures: string[] = [];
 
     settled.forEach((result, idx) => {
       if (result.status === "fulfilled") {
+        const [cgpaData, studentData] = result.value;
+        const rank = studentData?.student.rank ?? null;
         students.push(
-          toSelectedSemesterComparisonStudent(result.value, selectedSemesters),
+          toSelectedSemesterComparisonStudent(
+            cgpaData,
+            selectedSemesters,
+            rank,
+          ),
         );
-        profiles.push(toTrendProfile(result.value));
+        profiles.push(toTrendProfile(cgpaData));
         return;
       }
 
-      const label = selectedStudents[idx]?.label ?? selectedStudents[idx]?.value ?? "student";
-      const message = result.reason instanceof Error ? result.reason.message : "load failed";
+      const label =
+        selectedStudents[idx]?.label ??
+        selectedStudents[idx]?.value ??
+        "student";
+      const message =
+        result.reason instanceof Error ? result.reason.message : "load failed";
       failures.push(`${label}: ${message}`);
     });
 
     if (students.length < 2) {
-      const message = failures[0] ?? "Unable to load comparison data for at least two students.";
+      const message =
+        failures[0] ??
+        "Unable to load comparison data for at least two students.";
       setSubjectComparison({ loading: false, error: message, data: null });
       setTrendProfiles({ loading: false, error: message, data: null });
       return;
@@ -285,6 +332,15 @@ export default function ComparisonsPage() {
       loading: false,
       error: failures.length > 0 ? failures.slice(0, 2).join(" | ") : null,
       data: profiles,
+    });
+
+    setPageKpi({
+      title: "Comparison Stats",
+      cards: students.map((s) => ({
+        label: s.name,
+        value: `${s.cgpa != null ? s.cgpa.toFixed(2) : "N/A"} CGPA`,
+        suffix: ` • ${s.rank ? `Rank ${s.rank}` : "No Rank"} • ${s.arrears} Arr`,
+      })),
     });
   };
 
@@ -367,9 +423,7 @@ export default function ComparisonsPage() {
     }
 
     const detailedSemesters =
-      selectedSemesters.length > 0
-        ? new Set(selectedSemesters)
-        : null;
+      selectedSemesters.length > 0 ? new Set(selectedSemesters) : null;
 
     const semestersSet = new Set<number>();
     trendProfiles.data.forEach((profile) => {
@@ -377,13 +431,17 @@ export default function ComparisonsPage() {
     });
 
     const semesters = [...semestersSet]
-      .filter((semesterNo) => !detailedSemesters || detailedSemesters.has(semesterNo))
+      .filter(
+        (semesterNo) => !detailedSemesters || detailedSemesters.has(semesterNo),
+      )
       .sort((a, b) => b - a);
 
     return semesters.map((semesterNo) => ({
       semester: semesterNo,
       values: trendProfiles.data!.map((profile) => {
-        const point = profile.trend.find((item) => item.semester === semesterNo);
+        const point = profile.trend.find(
+          (item) => item.semester === semesterNo,
+        );
         return {
           regno: profile.regno,
           sgpa: point?.sgpa ?? null,
@@ -418,11 +476,15 @@ export default function ComparisonsPage() {
             Multi-Student Comparison Workspace
           </h3>
           <p className="m-0 text-[0.8rem] text-slate-500">
-            Compare 2 to 12 students with trend overlays, radar metrics, and subject spread.
+            Compare 2 to 12 students with trend overlays, radar metrics, and
+            subject spread.
           </p>
         </div>
 
-        <form onSubmit={onGenerateSubjectComparison} className="flex flex-col gap-3">
+        <form
+          onSubmit={onGenerateSubjectComparison}
+          className="flex flex-col gap-3"
+        >
           <div className="flex flex-col gap-1">
             <label
               htmlFor="multi-student-select"
@@ -434,19 +496,27 @@ export default function ComparisonsPage() {
               inputId="multi-student-select"
               options={studentOptions}
               value={selectedStudents}
-              onChange={(options: MultiValue<StudentOption>) => setSelectedStudents([...options])}
+              onChange={(options: MultiValue<StudentOption>) =>
+                setSelectedStudents([...options])
+              }
               isMulti
               isLoading={studentsDirectory.loading}
               placeholder="Type and select multiple students..."
               classNamePrefix="rs"
-              menuPortalTarget={typeof window !== "undefined" ? document.body : null}
+              menuPortalTarget={
+                typeof window !== "undefined" ? document.body : null
+              }
               styles={{
                 menuPortal: (base) => ({ ...base, zIndex: 70 }),
               }}
             />
-            <p className="text-xs text-slate-500 m-0">Directory size: {studentOptions.length} students</p>
+            <p className="text-xs text-slate-500 m-0">
+              Directory size: {studentOptions.length} students
+            </p>
             {studentsDirectory.error && (
-              <p className="text-sm font-semibold text-red-700 m-0">{studentsDirectory.error}</p>
+              <p className="text-sm font-semibold text-red-700 m-0">
+                {studentsDirectory.error}
+              </p>
             )}
           </div>
 
@@ -464,10 +534,14 @@ export default function ComparisonsPage() {
         </form>
 
         {subjectComparison.error && (
-          <p className="text-sm font-semibold text-red-700 m-0">{subjectComparison.error}</p>
+          <p className="text-sm font-semibold text-red-700 m-0">
+            {subjectComparison.error}
+          </p>
         )}
         {trendProfiles.error && !subjectComparison.error && (
-          <p className="text-sm font-semibold text-red-700 m-0">{trendProfiles.error}</p>
+          <p className="text-sm font-semibold text-red-700 m-0">
+            {trendProfiles.error}
+          </p>
         )}
 
         {trendProfiles.data && trendProfiles.data.length > 1 && (
@@ -477,15 +551,22 @@ export default function ComparisonsPage() {
                 <p className="m-0 text-[0.82rem] font-semibold text-[var(--muted)]">
                   Overall Comparisons (All Semesters)
                 </p>
-                <p className="m-0 text-xs text-slate-500">Scope: {overallSemesterScope}</p>
+                <p className="m-0 text-xs text-slate-500">
+                  Scope: {overallSemesterScope}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                 <div className="border border-[#dbe3ff] rounded-[10px] p-3 bg-white">
-                  <p className="m-0 text-[0.8rem] font-semibold text-[var(--muted)]">SGPA Trend Overlay</p>
+                  <p className="m-0 text-[0.8rem] font-semibold text-[var(--muted)]">
+                    SGPA Trend Overlay
+                  </p>
                   <div className="h-[280px] mt-1">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={sgpaTrendData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+                      <LineChart
+                        data={sgpaTrendData}
+                        margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
+                      >
                         <CartesianGrid {...gridProps} />
                         <XAxis dataKey="semester" {...axisProps} />
                         <YAxis {...axisProps} domain={[0, 10]} />
@@ -509,10 +590,15 @@ export default function ComparisonsPage() {
                 </div>
 
                 <div className="border border-[#dbe3ff] rounded-[10px] p-3 bg-white">
-                  <p className="m-0 text-[0.8rem] font-semibold text-[var(--muted)]">Cumulative CGPA Trend Overlay</p>
+                  <p className="m-0 text-[0.8rem] font-semibold text-[var(--muted)]">
+                    Cumulative CGPA Trend Overlay
+                  </p>
                   <div className="h-[280px] mt-1">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={cgpaTrendData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+                      <LineChart
+                        data={cgpaTrendData}
+                        margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
+                      >
                         <CartesianGrid {...gridProps} />
                         <XAxis dataKey="semester" {...axisProps} />
                         <YAxis {...axisProps} domain={[0, 10]} />
@@ -543,7 +629,8 @@ export default function ComparisonsPage() {
                   </p>
                   {trendProfiles.data.length > radarProfiles.length && (
                     <p className="m-0 text-xs text-slate-500">
-                      Showing first {radarProfiles.length} students for readability.
+                      Showing first {radarProfiles.length} students for
+                      readability.
                     </p>
                   )}
                 </div>
@@ -577,7 +664,9 @@ export default function ComparisonsPage() {
                 <p className="m-0 text-[0.82rem] font-semibold text-[var(--muted)]">
                   Detailed Comparisons (Workspace Semesters)
                 </p>
-                <p className="m-0 text-xs text-slate-500">Scope: {detailedSemesterScope}</p>
+                <p className="m-0 text-xs text-slate-500">
+                  Scope: {detailedSemesterScope}
+                </p>
               </div>
 
               <div className="overflow-auto mt-2">
@@ -594,8 +683,13 @@ export default function ComparisonsPage() {
                   />
                   <tbody>
                     {semesterComparisonRows.map((row) => (
-                      <tr key={`all-sem-${row.semester}`} className="hover:bg-[#f4f7ff] transition-colors">
-                        <td className="px-2.5 py-2 text-sm border-b border-[#dbe3ff]">Semester {row.semester}</td>
+                      <tr
+                        key={`all-sem-${row.semester}`}
+                        className="hover:bg-[#f4f7ff] transition-colors"
+                      >
+                        <td className="px-2.5 py-2 text-sm border-b border-[#dbe3ff]">
+                          Semester {row.semester}
+                        </td>
                         {row.values.flatMap((value) => [
                           <td
                             key={`${row.semester}-${value.regno}-sgpa`}
@@ -635,7 +729,9 @@ export default function ComparisonsPage() {
                   <p className="m-0 text-[0.82rem] font-semibold text-[var(--muted)]">
                     Detailed Subject Comparison (Workspace Semesters)
                   </p>
-                  <p className="m-0 text-xs text-slate-500">Scope: {detailedSemesterScope}</p>
+                  <p className="m-0 text-xs text-slate-500">
+                    Scope: {detailedSemesterScope}
+                  </p>
                 </div>
 
                 <div className="overflow-auto">
@@ -645,9 +741,12 @@ export default function ComparisonsPage() {
                       {comparisonData.rows.map((row, index) => {
                         const previousRow =
                           index > 0 ? comparisonData.rows[index - 1] : null;
-                        const showSemesterHeader = row.semester !== previousRow?.semester;
+                        const showSemesterHeader =
+                          row.semester !== previousRow?.semester;
                         const sectionTitle =
-                          row.semester == null ? "Overall" : `Semester ${row.semester}`;
+                          row.semester == null
+                            ? "Overall"
+                            : `Semester ${row.semester}`;
                         const rowKey =
                           row.semester == null
                             ? `overall-${row.subjectCode}`
@@ -666,7 +765,9 @@ export default function ComparisonsPage() {
                               </tr>
                             )}
                             <tr className="hover:bg-[#f4f7ff] transition-colors">
-                              <td className="px-2.5 py-2 text-sm border-b border-[#dbe3ff]">{row.subjectCode}</td>
+                              <td className="px-2.5 py-2 text-sm border-b border-[#dbe3ff]">
+                                {row.subjectCode}
+                              </td>
                               <td className="px-2.5 py-2 text-sm border-b border-[#dbe3ff]">
                                 {row.subjectName || "-"}
                               </td>
@@ -674,16 +775,24 @@ export default function ComparisonsPage() {
                                 <td
                                   key={`${rowKey}-p-${pointIndex}`}
                                   className={`px-2.5 py-2 text-sm border-b border-[#dbe3ff] ${
-                                    cell.diff > 0 ? "text-green-800 font-semibold" : "text-slate-500"
+                                    cell.diff > 0
+                                      ? "text-green-800 font-semibold"
+                                      : "text-slate-500"
                                   }`}
                                 >
                                   <span>{cell.value}</span>
-                                  {cell.diff > 0 && <span className="ml-1 text-xs">(+{cell.diff})</span>}
+                                  {cell.diff > 0 && (
+                                    <span className="ml-1 text-xs">
+                                      (+{cell.diff})
+                                    </span>
+                                  )}
                                 </td>
                               ))}
                               <td
                                 className={`px-2.5 py-2 text-sm border-b border-[#dbe3ff] ${
-                                  row.spread > 0 ? "text-sky-700 font-semibold" : "text-slate-400"
+                                  row.spread > 0
+                                    ? "text-sky-700 font-semibold"
+                                    : "text-slate-400"
                                 }`}
                               >
                                 {row.spread > 0 ? `+${row.spread}` : "-"}
@@ -710,7 +819,8 @@ export default function ComparisonsPage() {
           })()
         ) : (
           <p className="text-xs text-slate-500 m-0">
-            No comparison generated yet. Select students and click Run Comparison.
+            No comparison generated yet. Select students and click Run
+            Comparison.
           </p>
         )}
       </div>
