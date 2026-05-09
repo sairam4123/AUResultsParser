@@ -1,11 +1,71 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useExplorer } from "../../_explorer/context";
 import { fmtNumber } from "../../_explorer/utils";
+import { ClassManager } from "./ClassManager";
+import { api, type SubjectSummaryResponse } from "../../../lib/api";
 
 export default function SubjectsPage() {
-  const { subjectSummary, setPageKpi } = useExplorer();
+  const {
+    meta,
+    subjectSummary: globalSubjectSummary,
+    setPageKpi,
+    department,
+    selectedSemesters,
+    batch,
+  } = useExplorer();
+
+  const [classRegnos, setClassRegnos] = useState<string[] | null>(null);
+  const [localSummary, setLocalSummary] = useState<{
+    loading: boolean;
+    error: string | null;
+    data: SubjectSummaryResponse | null;
+  } | null>(null);
+
+  const activeSemester = selectedSemesters[0] ?? 0;
+
+  const defaultPrefix = "8128" + 
+    (batch ? batch.slice(-2) : "") + 
+    (meta.data?.departments.find(d => d.name === department)?.code || "");
+
+  useEffect(() => {
+    if (!classRegnos || !activeSemester || !department) {
+      setLocalSummary(null);
+      return;
+    }
+
+    let isMounted = true;
+    setLocalSummary({ loading: true, error: null, data: null });
+
+    api
+      .getSubjectSummary(
+        activeSemester,
+        department,
+        batch || null,
+        classRegnos.join(","),
+      )
+      .then((data) => {
+        if (isMounted) setLocalSummary({ loading: false, error: null, data });
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setLocalSummary({
+            loading: false,
+            error: error instanceof Error ? error.message : "Load failed",
+            data: null,
+          });
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [classRegnos, activeSemester, department, batch]);
+
+  const subjectSummary = classRegnos
+    ? localSummary || { loading: true, error: null, data: null }
+    : globalSubjectSummary;
 
   useEffect(() => {
     if (!subjectSummary.data || subjectSummary.data.subjects.length === 0) {
@@ -70,6 +130,8 @@ export default function SubjectsPage() {
 
   return (
     <div className="p-4 overflow-auto max-h-[calc(100vh-180px)]">
+      <ClassManager onSelectClass={setClassRegnos} defaultPrefix={defaultPrefix} />
+      
       {subjectSummary.loading && (
         <p className="text-sm text-[var(--muted)] m-0">
           Loading subject metrics...

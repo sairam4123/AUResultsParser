@@ -83,12 +83,26 @@ function buildAuditView(
         const events = (byCode.get(eff.code) ?? []).sort(
           (a, b) => a.recency_rank - b.recency_rank,
         );
+        const actualEffectiveEvent =
+          events.find((e) => e.grade !== "NC") ?? events[0];
+
+        // Deduce pass/fail status just in case the backend carried over "NC"
+        let status = eff.status;
+        if (actualEffectiveEvent && eff.grade === "NC") {
+          const g = actualEffectiveEvent.grade;
+          if (["O", "A+", "A", "B+", "B", "C"].includes(g)) status = "Pass";
+          else if (["U", "UA"].includes(g)) status = "Fail";
+          else if (g === "WH") status = "Withheld";
+        }
+
         subjects.push({
           code: eff.code,
           name: eff.name,
           events,
-          effectiveGrade: eff.grade,
-          effectiveStatus: eff.status,
+          effectiveGrade: actualEffectiveEvent
+            ? actualEffectiveEvent.grade
+            : eff.grade,
+          effectiveStatus: status,
         });
       }
 
@@ -97,12 +111,24 @@ function buildAuditView(
       for (const [code, events] of byCode) {
         if (!effCodes.has(code)) {
           const sorted = events.sort((a, b) => a.recency_rank - b.recency_rank);
+          const actualEffectiveEvent =
+            sorted.find((e) => e.grade !== "NC") ?? sorted[0];
+
+          let status = "–";
+          if (actualEffectiveEvent) {
+            const g = actualEffectiveEvent.grade;
+            if (["O", "A+", "A", "B+", "B", "C"].includes(g)) status = "Pass";
+            else if (["U", "UA"].includes(g)) status = "Fail";
+            else if (g === "WH") status = "Withheld";
+            else status = actualEffectiveEvent.state;
+          }
+
           subjects.push({
             code,
             name: sorted[0]?.subject_name ?? code,
             events: sorted,
-            effectiveGrade: sorted[0]?.grade ?? "–",
-            effectiveStatus: sorted[0]?.state ?? "–",
+            effectiveGrade: actualEffectiveEvent?.grade ?? "–",
+            effectiveStatus: status,
           });
         }
       }
@@ -212,13 +238,17 @@ function AuditPageContent() {
               api.getStudentAudit(sem, department, batch || null, regno),
             ),
           ),
-          api.getStudent(semester, department, batch || null, regno).catch(() => null),
-          api.getCgpaBreakdown({
-            semesters: semList.join(","),
-            department,
-            batch: batch || null,
-            regno,
-          }).catch(() => null),
+          api
+            .getStudent(semester, department, batch || null, regno)
+            .catch(() => null),
+          api
+            .getCgpaBreakdown({
+              semesters: semList.join(","),
+              department,
+              batch: batch || null,
+              regno,
+            })
+            .catch(() => null),
         ]);
 
         const audits: { semester: number; data: StudentAuditResponse }[] = [];
@@ -256,7 +286,14 @@ function AuditPageContent() {
         });
       }
     },
-    [batch, canQuery, department, meta.data?.semesters, selectedSemesters, semester],
+    [
+      batch,
+      canQuery,
+      department,
+      meta.data?.semesters,
+      selectedSemesters,
+      semester,
+    ],
   );
 
   const onLoad = (e: FormEvent) => {
@@ -289,9 +326,12 @@ function AuditPageContent() {
       cards: [
         { label: "Sem Rank", value: kpiData.rank ?? "N/A" },
         { label: "Cur SGPA", value: kpiData.sgpa.toFixed(2) },
-        { label: "Cur CGPA", value: kpiData.cgpa ? kpiData.cgpa.toFixed(2) : "N/A" },
+        {
+          label: "Cur CGPA",
+          value: kpiData.cgpa ? kpiData.cgpa.toFixed(2) : "N/A",
+        },
         { label: "No. of Arrears", value: kpiData.arrears },
-      ]
+      ],
     });
     return () => setPageKpi(null);
   }, [audit.data, kpiData, selectedStudentValue, setPageKpi]);
@@ -431,8 +471,16 @@ function AuditPageContent() {
                       {subj.events.length > 0 && (
                         <div className="border-l-2 border-[#c6ceef] ml-1.5 pl-2.5 flex flex-col gap-1">
                           {subj.events.map((ev, idx) => {
-                            const isLatest = idx === 0;
-                            const isSuperseded = !isLatest;
+                            const effectiveEventIdx = subj.events.findIndex(
+                              (e) => e.grade !== "NC",
+                            );
+                            const actualEffectiveEventIdx =
+                              effectiveEventIdx !== -1 ? effectiveEventIdx : 0;
+                            const isActualEffective =
+                              idx === actualEffectiveEventIdx;
+                            const isSuperseded =
+                              ev.grade === "NC" ||
+                              idx > actualEffectiveEventIdx;
 
                             let stateBadgeCls = "bg-blue-50 text-blue-600";
                             if (isSuperseded)
@@ -454,7 +502,7 @@ function AuditPageContent() {
                                 {/* Timeline dot */}
                                 <span
                                   className={`w-2 h-2 rounded-full shrink-0 -ml-[15px] ${
-                                    isLatest
+                                    isActualEffective
                                       ? "bg-[#3040a0] ring-2 ring-[#3040a033]"
                                       : "bg-slate-300"
                                   }`}
